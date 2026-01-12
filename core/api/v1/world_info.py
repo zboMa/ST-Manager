@@ -8,11 +8,12 @@ from io import BytesIO
 from flask import Blueprint, request, jsonify, send_file
 
 # === 基础设施 ===
-from core.config import BASE_DIR, load_config, DEFAULT_DB_PATH, CARDS_FOLDER
+from core.config import BASE_DIR, load_config, DEFAULT_DB_PATH, CARDS_FOLDER, TRASH_FOLDER 
 from core.context import ctx
 from core.data.db_session import get_db
 from core.data.ui_store import load_ui_data, UI_DATA_FILE
 from core.services.cache_service import invalidate_wi_list_cache
+from core.utils.filesystem import safe_move_to_trash
 
 def _safe_mtime(path: str) -> float:
     try:
@@ -661,4 +662,30 @@ def api_wi_clipboard_reorder():
             conn.commit()
         return jsonify({"success": True})
     except Exception as e:
+        return jsonify({"success": False, "msg": str(e)})
+    
+# 删除世界书
+@bp.route('/api/world_info/delete', methods=['POST'])
+def api_delete_world_info():
+    try:
+        # 传入完整文件路径
+        file_path = request.json.get('file_path')
+        
+        if not file_path or not os.path.exists(file_path):
+            return jsonify({"success": False, "msg": "文件不存在或路径为空"})
+            
+        # 简单的安全检查，防止删除系统关键文件
+        if 'card_metadata' in file_path or 'config.json' in file_path:
+             return jsonify({"success": False, "msg": "非法操作：禁止删除系统文件"})
+
+        # 执行移动到回收站
+        if safe_move_to_trash(file_path, TRASH_FOLDER):
+            # 刷新列表缓存
+            invalidate_wi_list_cache()
+            return jsonify({"success": True})
+        else:
+            return jsonify({"success": False, "msg": "移动到回收站失败"})
+            
+    except Exception as e:
+        logger.error(f"Delete WI error: {e}")
         return jsonify({"success": False, "msg": str(e)})

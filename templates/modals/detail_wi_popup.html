@@ -40,6 +40,11 @@
                 class="btn-secondary py-2 flex flex-col items-center justify-center gap-1">
                 <span>📂</span> <span>打开备份目录</span>
             </button>
+            <button x-show="activeWiDetail?.type !== 'embedded'" 
+                @click="deleteCurrentWi()"
+                class="col-span-2 mt-2 py-2 rounded border border-red-500/50 text-red-400 hover:bg-red-500/10 transition flex items-center justify-center gap-2">
+                <span>🗑️</span> 删除此世界书
+            </button>
         </div>
     </div>
 </div>

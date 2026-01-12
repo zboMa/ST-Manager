@@ -42,6 +42,16 @@ export async function uploadWorldInfo(formData) {
     return res.json();
 }
 
+// 删除世界书
+export async function deleteWorldInfo(filePath) {
+    const res = await fetch('/api/world_info/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ file_path: filePath })
+    });
+    return res.json();
+}
+
 // 迁移散乱 Lorebooks
 export async function migrateLorebooks() {
     const res = await fetch('/api/tools/migrate_lorebooks', { method: 'POST' });

@@ -34,11 +34,6 @@ export default function importModal() {
             }
 
             this.$store.global.isLoading = true;
-
-            // 如果用户未选择分类，则逻辑上应该跟随当前视图
-            // 但组件无法直接访问 Layout 的 filterCategory，
-            // 建议在 'open-import-url' 事件中传入当前 filterCategory 作为默认值
-            
             importCardFromUrl({
                 url: this.importUrlInput.trim(),
                 category: this.importTargetCategory
@@ -50,19 +45,13 @@ export default function importModal() {
                     this.showImportUrlModal = false;
                     this.importUrlInput = '';
                     
-                    // 刷新列表
-                    window.dispatchEvent(new CustomEvent('refresh-card-list'));
-                    
-                    // 插入新卡片的高亮提示 (逻辑在 grid 中处理了，这里只负责弹窗)
-                    // 如果 new_card 存在，可以触发高亮
                     if (res.new_card) {
+                        window.dispatchEvent(new CustomEvent('card-imported', { detail: res.new_card }));
                         window.dispatchEvent(new CustomEvent('highlight-card', { detail: res.new_card.id }));
                         
                         // 提示
                         const target = this.importTargetCategory || '当前目录';
-                        if (confirm(`导入成功：${res.new_card.char_name}\n保存位置: "${target}"\n是否查看详情？`)) {
-                            window.dispatchEvent(new CustomEvent('open-detail', { detail: res.new_card }));
-                        }
+                        this.$store.global.showToast(`✅ 导入成功：${res.new_card.char_name}`, 3000);
                     }
                 } else {
                     alert("导入失败: " + res.msg);

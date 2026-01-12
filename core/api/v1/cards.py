@@ -1044,7 +1044,7 @@ def api_import_from_url():
             "creator_notes": data_block.get('creator_notes', ''),
             "character_book": data_block.get('character_book', None),
             "ui_summary": "",
-            "source_link": url, # 自动将来源 URL 填入 source_link
+            "source_link": "",
             "tags": tags,
             "category": target_category,
             "creator": data_block.get('creator', ''),
@@ -1054,13 +1054,6 @@ def api_import_from_url():
             "thumb_url": f"/api/thumbnail/{quote(rel_path)}",
             "last_modified": time.time()
         }
-        
-        # 保存 source_link 到 ui_data
-        ui_data = load_ui_data()
-        if rel_path not in ui_data:
-            ui_data[rel_path] = {}
-        ui_data[rel_path]['link'] = url
-        save_ui_data(ui_data)
 
         return jsonify({"success": True, "new_card": new_card})
 
@@ -1389,9 +1382,6 @@ def api_update_card_from_url():
         if not extract_card_info(temp_path):
             os.remove(temp_path)
             return jsonify({"success": False, "msg": "无效的图片文件，无法获取角色数据"})
-            
-        # 更新来源链接
-        keep_ui_data['source_link'] = url
             
         # 调用通用逻辑
         result = update_card_content(card_id, temp_path, is_bundle_update, keep_ui_data, '.png')

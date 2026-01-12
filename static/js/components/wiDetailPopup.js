@@ -4,6 +4,7 @@
  */
 
 import { wiHelpers } from '../utils/wiHelpers.js';
+import { deleteWorldInfo } from '../api/wi.js';
 
 export default function wiDetailPopup() {
     return {
@@ -27,6 +28,34 @@ export default function wiDetailPopup() {
         },
 
         // === 交互逻辑 ===
+
+        // 删除当前世界书
+        deleteCurrentWi() {
+            if (!this.activeWiDetail) return;
+            
+            // 双重保险：如果是嵌入式，直接返回
+            if (this.activeWiDetail.type === 'embedded') {
+                alert("无法直接删除内嵌世界书，请去角色卡编辑界面操作。");
+                return;
+            }
+
+            const name = this.activeWiDetail.name || "该世界书";
+            if (!confirm(`⚠️ 确定要删除 "${name}" 吗？\n文件将被移至回收站。`)) return;
+
+            deleteWorldInfo(this.activeWiDetail.path)
+                .then(res => {
+                    if (res.success) {
+                        this.showWiDetailModal = false;
+                        // 刷新列表
+                        window.dispatchEvent(new CustomEvent('refresh-wi-list'));
+                        // 可选：显示 Toast
+                        // this.$store.global.showToast("🗑️ 已删除"); 
+                    } else {
+                        alert("删除失败: " + res.msg);
+                    }
+                })
+                .catch(err => alert("请求错误: " + err));
+        },
 
         // 进入编辑器
         enterWiEditorFromDetail() {

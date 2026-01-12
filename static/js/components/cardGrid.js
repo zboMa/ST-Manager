@@ -34,13 +34,13 @@ export default function cardGrid() {
         dragOverMain: false,
 
         get selectedIds() { return this.$store.global.viewState.selectedIds; },
-        set selectedIds(val) { this.$store.global.viewState.selectedIds = val; },
+        set selectedIds(val) { this.$store.global.viewState.selectedIds = val; return true;},
         
         get lastSelectedId() { return this.$store.global.viewState.lastSelectedId; },
-        set lastSelectedId(val) { this.$store.global.viewState.lastSelectedId = val; },
+        set lastSelectedId(val) { this.$store.global.viewState.lastSelectedId = val; return true;},
 
         get draggedCards() { return this.$store.global.viewState.draggedCards; },
-        set draggedCards(val) { this.$store.global.viewState.draggedCards = val; },
+        set draggedCards(val) { this.$store.global.viewState.draggedCards = val; return true;},
 
         // === 初始化 ===
         init() {
@@ -114,6 +114,42 @@ export default function cardGrid() {
                 } else {
                     // 如果完全没找到（可能是新增），插入开头
                     this.cards.unshift(updatedCard);
+                }
+            });
+
+            // 监听 URL 导入的新卡片
+            window.addEventListener('card-imported', (e) => {
+                const newCard = e.detail;
+                if (!newCard) return;
+
+                // 判断是否应该在当前视图显示 (逻辑同 handleFilesDrop)
+                let shouldShow = false;
+                // 获取当前的筛选分类 (直接读 store 或者 local prop)
+                const currentCat = this.$store.global.viewState.filterCategory;
+                const recursive = this.$store.global.viewState.recursiveFilter;
+
+                if (currentCat === '') {
+                    // 根目录视图：如果是递归，全显示；如果不递归，只显示根目录卡片
+                    shouldShow = recursive || newCard.category === '';
+                } else {
+                    // 特定目录视图
+                    shouldShow = newCard.category === currentCat || 
+                        (recursive && newCard.category.startsWith(currentCat + '/'));
+                }
+
+                // 如果符合当前视图，插入列表
+                if (shouldShow) {
+                    this.insertCardSorted(newCard);
+                    this.totalItems++;
+                }
+                
+                // 更新标签池
+                if (newCard.tags) {
+                    newCard.tags.forEach(t => {
+                        if (!this.$store.global.allTagsPool.includes(t)) {
+                            this.$store.global.allTagsPool.push(t);
+                        }
+                    });
                 }
             });
 
@@ -357,30 +393,41 @@ export default function cardGrid() {
             e.dataTransfer.setData('text/plain', card.id);
             
             // 视觉反馈
-            const cardElement = e.currentTarget.closest('.st-card');
+            const cardElement = e.target.closest('.st-card');
             if (cardElement) {
-                cardElement.classList.add('drag-source');
+                // 延迟添加样式，避免拖拽的“幽灵图”也变黑白
+                requestAnimationFrame(() => {
+                    cardElement.classList.add('drag-source');
+                });
+
+                // 定义清理函数
+                const cleanup = () => {
+                    cardElement.classList.remove('drag-source');
+                    // 触发全局清理，确保 Store 状态重置
+                    window.dispatchEvent(new CustomEvent('global-drag-end'));
+                };
+
+                // 绑定一次性 dragend 事件，确保无论成功与否都执行清理
+                e.target.addEventListener('dragend', cleanup, { once: true });
                 
-                // 自定义拖拽图片
+                // 自定义拖拽图片 (保持原逻辑)
                 if (e.dataTransfer.setDragImage) {
                     const dragImg = document.createElement('img');
-                    window.dragImageElement = dragImg; 
+                    window.dragImageElement = dragImg;
                     
                     const displayCard = this.draggedCards.length > 1 ? 
                         this.cards.find(c => c.id === this.draggedCards[0]) : card;
                         
                     if (displayCard && displayCard.image_url) {
                         dragImg.src = displayCard.image_url;
-                        dragImg.style.width = '100px';
+                        dragImg.style.width = '140px';
                         dragImg.style.height = 'auto';
-                        dragImg.style.opacity = '0.7';
                         dragImg.style.borderRadius = '8px';
-                        dragImg.style.boxShadow = '0 2px 8px rgba(0,0,0,0.3)';
                         dragImg.style.position = 'absolute';
                         dragImg.style.top = '-9999px';
+                        dragImg.style.zIndex = '-1';
                         document.body.appendChild(dragImg);
-                        
-                        e.dataTransfer.setDragImage(dragImg, 50, 50);
+                        e.dataTransfer.setDragImage(dragImg, 70, 70);
                     }
                 }
             }

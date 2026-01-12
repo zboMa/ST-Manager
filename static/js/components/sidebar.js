@@ -14,26 +14,26 @@ export default function sidebar() {
         dragOverFolder: null,
 
         get filterCategory() { return this.$store.global.viewState.filterCategory; },
-        set filterCategory(val) { this.$store.global.viewState.filterCategory = val; },
+        set filterCategory(val) { this.$store.global.viewState.filterCategory = val; return true; },
 
         get filterTags() { return this.$store.global.viewState.filterTags; },
-        set filterTags(val) { this.$store.global.viewState.filterTags = val; },
+        set filterTags(val) { this.$store.global.viewState.filterTags = val; return true; },
 
         // === 代理拖拽状态 ===
         get draggedCards() { return this.$store.global.viewState.draggedCards; },
         get draggedFolder() { return this.$store.global.viewState.draggedFolder; },
-        set draggedFolder(val) { this.$store.global.viewState.draggedFolder = val; },
+        set draggedFolder(val) { this.$store.global.viewState.draggedFolder = val; return true; },
 
         get allTagsPool() { return this.$store.global.allTagsPool; },
         get sidebarTagsPool() { return this.$store.global.sidebarTagsPool; },
         get libraryTotal() { return this.$store.global.libraryTotal; },
         get tagSearchQuery() { return this.$store.global.tagSearchQuery; },
-        set showTagFilterModal(val) { this.$store.global.showTagFilterModal = val; },
+        set showTagFilterModal(val) { this.$store.global.showTagFilterModal = val; return true; },
 
         get wiFilterType() { return this.$store.global.wiFilterType; },
 
         // 选中状态 (用于清空)
-        set selectedIds(val) { this.$store.global.viewState.selectedIds = val; },
+        set selectedIds(val) { this.$store.global.viewState.selectedIds = val; return true; },
 
         // 计算属性：构建文件夹树 (依赖全局 Store 数据)
         get folderTree() {

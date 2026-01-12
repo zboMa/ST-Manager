@@ -29,14 +29,14 @@ export default function layout() {
         get searchQuery() { return this.$store.global.viewState.searchQuery; },
         get filterCategory() { return this.$store.global.viewState.filterCategory; },
         get selectedIds() { return this.$store.global.viewState.selectedIds; },
-        set selectedIds(val) { this.$store.global.viewState.selectedIds = val; },
+        set selectedIds(val) { this.$store.global.viewState.selectedIds = val; return true; },
         
         // 拖拽状态也建议走 Store，特别是 draggedCards
         get draggedCards() { return this.$store.global.viewState.draggedCards; },
-        set draggedCards(val) { this.$store.global.viewState.draggedCards = val; },
+        set draggedCards(val) { this.$store.global.viewState.draggedCards = val; return true; },
         
         get draggedFolder() { return this.$store.global.viewState.draggedFolder; },
-        set draggedFolder(val) { this.$store.global.viewState.draggedFolder = val; },
+        set draggedFolder(val) { this.$store.global.viewState.draggedFolder = val; return true; },
 
         // 本地 UI 状态 (仅 Layout 自身使用)
         dragCounter: 0,

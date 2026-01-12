@@ -446,7 +446,7 @@ export default function detailModal() {
         },
 
         triggerUrlUpdate() {
-            const url = prompt("请输入新的角色卡图片链接 (PNG):");
+            const url = prompt("请输入新的角色卡图片链接 (PNG/WEBP):\n注意：这仅更新图片和数据，不会更改'来源链接'字段。");
             if (!url) return;
 
             let isBundleUpdate = false;
@@ -490,7 +490,7 @@ export default function detailModal() {
         handleUpdateResponse(res) {
             this.isSaving = false;
             if (res.success) {
-                alert("更新成功！");
+                this.$store.global.showToast("✅ 更新成功", 2000);
                 const updatedCard = res.updated_card;
                 if (updatedCard) {
                     const ts = new Date().getTime();

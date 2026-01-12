@@ -20,7 +20,7 @@
         <div x-show="!isLoading" class="card-grid">
             <template x-for="card in paginatedCards" :key="card.id" @click="selectedIds = []">
                 <!-- ... (角色卡模板内容保持不变) ... -->
-                <div class="st-card"
+                <div class="st-card group"
                     :class="{'selected': selectedIds.includes(card.id)}"
                     @click.stop="handleCardClick($event, card)" draggable="true" @dragstart="dragStart($event, card)">
 
