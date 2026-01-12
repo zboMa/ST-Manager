@@ -162,20 +162,9 @@
             </div>
         </div>
 
-
-        <!-- 左侧按钮实际 DOM (放在 flex 容器内，列表之后) -->
-        <div class="relative h-full w-0 flex items-center z-20 edge-hover-zone">
-            <!-- 当列表收起时(width=0)，这个按钮应该固定在屏幕左侧；展开时在列表右侧 -->
-            <!-- 这里的定位逻辑稍微复杂，为了简化，我们使用 fixed 或 absolute 相对于父 flex 容器 -->
-            <button @click="showWiList = !showWiList" class="edge-toggle-btn edge-toggle-left absolute"
-                :style="{ left: showWiList ? '0px' : '0px' }"
-                style="/* 如果列表收起，按钮应该在最左边；如果展开，按钮应该在320px处。由于父容器是 flex，我们把按钮放在列表 div 外部 */">
-                <span x-text="showWiList ? '◀' : '▶'"></span>
-            </button>
-        </div>
-        <button @click="showWiList = !showWiList" class="edge-toggle-btn edge-toggle-left"
-            :style="{ left: showWiList ? '320px' : '0px' }"
-            style="position: absolute; top: 50%; transition: left 0.3s ease;">
+        <button @click="showWiList = !showWiList"
+            class="edge-toggle-btn edge-toggle-left transition-all duration-300 ease-in-out"
+            :style="{ left: showWiList ? '320px' : '0px' }" style="position: absolute; top: 50%; z-index: 50;">
             <span x-text="showWiList ? '◀' : '▶'"></span>
         </button>
 
@@ -238,7 +227,7 @@
                                         </button>
                                         <!-- 添加 .stop 防止点击复制时触发父级选中逻辑 -->
                                         <button @click.stop="copyWiToClipboard(entry)"
-                                            class="h-[38px] px-3 bg-purple-900/20 text-purple-400 border border-purple-800/50 rounded flex items-center hover:bg-purple-900/40 transition"
+                                            class="h-[38px] px-3 bg-purple-900/20 text-purple-400 border border-purple-800/50 rounded flex items-center hover:bg-purple-900/40 transition whitespace-nowrap"
                                             title="复制到全局剪切板">
                                             📋 <span class="ml-1 text-xs">Copy</span>
                                         </button>

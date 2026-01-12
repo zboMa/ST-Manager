@@ -477,10 +477,13 @@ export default function wiEditor() {
         },
 
         _addWiClipboardRequest(entry, overwriteId = null) {
-            // 立即给用户反馈
-            const btn = document.activeElement;
-            const originalText = btn ? btn.innerText : '';
-            if (btn && !overwriteId) btn.innerText = '⏳...';
+            // 获取当前焦点元素
+            const activeEl = document.activeElement;
+            const isSafeButton = activeEl && 
+                                 activeEl.tagName === 'BUTTON' && 
+                                 !activeEl.classList.contains('wi-list-item');
+            const originalHtml = isSafeButton ? activeEl.innerHTML : '';
+            if (isSafeButton && !overwriteId) activeEl.innerHTML = '⏳...';
 
             clipboardAdd(entry, overwriteId).then(res => {
                 if (res.success) {
@@ -501,7 +504,7 @@ export default function wiEditor() {
                     alert("保存失败: " + res.msg);
                 }
             }).finally(() => {
-                if (btn && !overwriteId) btn.innerText = originalText;
+                if (isSafeButton && !overwriteId) activeEl.innerHTML = originalHtml;
             });
         },
 
@@ -568,13 +571,21 @@ export default function wiEditor() {
         // 1. 主列表拖拽
         wiDragStart(e, index) {
             this.wiDraggingIndex = index;
-            e.dataTransfer.effectAllowed = 'move';
-            e.dataTransfer.setData('text/plain', index);
+            e.dataTransfer.effectAllowed = 'copyMove';
+            e.dataTransfer.setData('application/x-wi-index', index.toString());
+
+            const arr = this.getWIArrayRef();
+            const item = arr[index];
+            
+            if (item) {
+                const exportItem = JSON.parse(JSON.stringify(item));
+                e.dataTransfer.setData('text/plain', JSON.stringify(exportItem, null, 2));
+            }
             const target = e.target;
             target.classList.add('dragging');
             const cleanup = () => {
-                target.classList.remove('dragging'); // 移除样式，恢复UI布局
-                this.wiDraggingIndex = null;         // 重置索引
+                target.classList.remove('dragging');
+                this.wiDraggingIndex = null;
             };
             target.addEventListener('dragend', cleanup, { once: true });
         },
@@ -616,29 +627,47 @@ export default function wiEditor() {
                 return;
             }
 
-            // B. 内部排序
-            const sourceIndex = this.wiDraggingIndex;
-            if (sourceIndex === null || sourceIndex === targetIndex) return;
+            // B: 内部列表排序
+            let sourceIndexStr = e.dataTransfer.getData('application/x-wi-index');
+
+            if (!sourceIndexStr && this.wiDraggingIndex !== null) {
+                sourceIndexStr = this.wiDraggingIndex.toString();
+            }
+
+            if (!sourceIndexStr) return;
+
+            const sourceIndex = parseInt(sourceIndexStr);
+
+            if (isNaN(sourceIndex) || sourceIndex === targetIndex) return;
 
             const arr = this.getWIArrayRef();
             if (sourceIndex >= arr.length || targetIndex > arr.length) return;
+
             const itemToMove = arr[sourceIndex];
-            
+
             let oldSelectedIndex = this.currentWiIndex;
             let newSelectedIndex = oldSelectedIndex;
 
+            // 根据拖拽方向执行不同的 splice 操作
             if (sourceIndex < targetIndex) {
                 arr.splice(sourceIndex, 1);
                 arr.splice(targetIndex - 1, 0, itemToMove);
-                if (oldSelectedIndex === sourceIndex) newSelectedIndex = targetIndex - 1;
-                else if (oldSelectedIndex > sourceIndex && oldSelectedIndex < targetIndex) newSelectedIndex = oldSelectedIndex - 1;
+
+                if (oldSelectedIndex === sourceIndex) {
+                    newSelectedIndex = targetIndex - 1;
+                } else if (oldSelectedIndex > sourceIndex && oldSelectedIndex < targetIndex) {
+                    newSelectedIndex = oldSelectedIndex - 1;
+                }
             } else {
                 arr.splice(sourceIndex, 1);
                 arr.splice(targetIndex, 0, itemToMove);
-                if (oldSelectedIndex === sourceIndex) newSelectedIndex = targetIndex;
-                else if (oldSelectedIndex >= targetIndex && oldSelectedIndex < sourceIndex) newSelectedIndex = oldSelectedIndex + 1;
+                if (oldSelectedIndex === sourceIndex) {
+                    newSelectedIndex = targetIndex;
+                } else if (oldSelectedIndex >= targetIndex && oldSelectedIndex < sourceIndex) {
+                    newSelectedIndex = oldSelectedIndex + 1;
+                }
             }
-            
+
             this.currentWiIndex = newSelectedIndex;
         },
 
@@ -646,7 +675,7 @@ export default function wiEditor() {
         clipboardDragStart(e, item, idx) {
             e.dataTransfer.setData('application/x-wi-clipboard', JSON.stringify(item.content));
             e.dataTransfer.setData('text/plain', JSON.stringify(item.content));
-            e.dataTransfer.effectAllowed = 'copy';
+            e.dataTransfer.effectAllowed = 'copyMove';
             // 内部排序用
             e.dataTransfer.setData('application/x-wi-clipboard-index', idx);
 
@@ -658,20 +687,28 @@ export default function wiEditor() {
         },
 
         clipboardDropInside(e, targetIdx) {
+            e.preventDefault();
             e.stopPropagation();
             const sourceIdxStr = e.dataTransfer.getData('application/x-wi-clipboard-index');
-            if (!sourceIdxStr) return;
-            
-            const sourceIdx = parseInt(sourceIdxStr);
-            if (sourceIdx === targetIdx) return;
+            if (sourceIdxStr) {
+                const sourceIdx = parseInt(sourceIdxStr);
+                if (sourceIdx === targetIdx) return;
+                const items = [...this.wiClipboardItems];
+                const [moved] = items.splice(sourceIdx, 1);
+                items.splice(targetIdx, 0, moved);
+                this.wiClipboardItems = items;
+                const orderMap = items.map(i => i.db_id);
+                clipboardReorder(orderMap);
+                return;
+            }
 
-            const items = [...this.wiClipboardItems];
-            const [moved] = items.splice(sourceIdx, 1);
-            items.splice(targetIdx, 0, moved);
-            this.wiClipboardItems = items;
-
-            const orderMap = items.map(i => i.db_id);
-            clipboardReorder(orderMap);
+            if (this.wiDraggingIndex !== null && this.wiDraggingIndex !== undefined) {
+                const arr = this.getWIArrayRef();
+                const rawEntry = arr[this.wiDraggingIndex];
+                if (rawEntry) {
+                    this.copyWiToClipboard(rawEntry);
+                }
+            }
         },
 
         // === 处理剪切板容器的 Drop ===
@@ -700,11 +737,16 @@ export default function wiEditor() {
                 // 从左侧主列表拖入 (复制)
                 if (this.wiDraggingIndex !== null && this.wiDraggingIndex !== undefined) {
                     const arr = this.getWIArrayRef();
-                    const entry = arr[this.wiDraggingIndex];
-                    if (entry) {
-                        this.copyWiToClipboard(entry);
+                    const rawEntry = arr[this.wiDraggingIndex];
+                    
+                    if (rawEntry) {
+                        // 深拷贝
+                        let entryCopy = null;
+                        try {
+                            entryCopy = JSON.parse(JSON.stringify(rawEntry));
+                        } catch(err) { return; }
+                        this.copyWiToClipboard(entryCopy);
                     }
-                    this.wiDraggingIndex = null;
                 }
             }
         }
