@@ -110,7 +110,7 @@ def update_card_cache(card_id, full_path, *, parsed_info=None, file_hash=None, f
             cursor.execute('''
                 INSERT OR REPLACE INTO card_metadata 
                 (id, char_name, description, first_mes, mes_example, tags, category, creator, char_version, last_modified, file_hash, file_size, token_count, has_character_book, character_book_name, is_favorite)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?，?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 card_id,
                 char_name,
