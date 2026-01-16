@@ -396,7 +396,9 @@ def api_update_card():
             "resource_folder": res_folder_val,
             "token_count": token_count,
             "last_modified": current_mtime,
-            "dir_path": os.path.dirname(final_rel_path_id) if '/' in final_rel_path_id else ""
+            "dir_path": os.path.dirname(final_rel_path_id) if '/' in final_rel_path_id else "",
+            "char_version": data_block.get('character_version', ''),
+            "creator": data_block.get('creator', '')
         }
         
         # 更新单卡内存对象
