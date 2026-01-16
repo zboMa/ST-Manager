@@ -24,9 +24,10 @@ DB_FOLDER = os.path.join(SYSTEM_DIR, 'db')
 DEFAULT_DB_PATH = os.path.join(DB_FOLDER, 'cards_metadata.db')
 THUMB_FOLDER = os.path.join(SYSTEM_DIR, 'thumbnails')
 TRASH_FOLDER = os.path.join(SYSTEM_DIR, 'trash')
+TEMP_DIR = os.path.join(DATA_DIR, 'temp')
 
 # 确保核心系统目录存在
-for d in [DATA_DIR, SYSTEM_DIR, DB_FOLDER, THUMB_FOLDER, TRASH_FOLDER]:
+for d in [DATA_DIR, SYSTEM_DIR, DB_FOLDER, THUMB_FOLDER, TRASH_FOLDER, TEMP_DIR]:
     if not os.path.exists(d):
         try: os.makedirs(d)
         except: pass

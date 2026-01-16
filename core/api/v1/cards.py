@@ -12,7 +12,7 @@ from PIL import Image
 from flask import Blueprint, request, jsonify
 
 # === 基础设施 ===
-from core.config import CARDS_FOLDER, DATA_DIR, BASE_DIR, THUMB_FOLDER, TRASH_FOLDER, DEFAULT_DB_PATH, load_config, current_config
+from core.config import CARDS_FOLDER, DATA_DIR, BASE_DIR, THUMB_FOLDER, TRASH_FOLDER, DEFAULT_DB_PATH, TEMP_DIR, load_config, current_config
 from core.context import ctx
 from core.data.db_session import get_db
 from core.data.ui_store import load_ui_data, save_ui_data
@@ -28,7 +28,7 @@ from core.utils.image import (
     extract_card_info, write_card_metadata,
     find_sidecar_image, clean_thumbnail_cache,
     clean_sidecar_images, resize_image_if_needed )
-from core.utils.filesystem import safe_move_to_trash, is_card_file
+from core.utils.filesystem import safe_move_to_trash, is_card_file, sanitize_filename
 from core.utils.hash import get_file_hash_and_size
 from core.utils.text import calculate_token_count
 from core.utils.data import get_wi_meta, normalize_card_v3, deterministic_sort
@@ -1000,121 +1000,191 @@ def api_upload_cards():
 
 @bp.route('/api/import_from_url', methods=['POST'])
 def api_import_from_url():
+    temp_path = None
     try:
         # 会写入 cards/ 文件，抑制 watchdog
         suppress_fs_events(2.5)
-        url = request.json.get('url')
-        # 允许用户指定导入的目标分类，默认是当前浏览的分类
-        target_category = request.json.get('category', '')
+        
+        data = request.json
+        url = data.get('url')
+        target_category = data.get('category', '')
         if target_category == "根目录": target_category = ""
         
-        if not url:
-            return jsonify({"success": False, "msg": "URL 不能为空"})
-
-        # 1. 伪装 Header 下载图片
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Referer': url
-        }
+        resolution = data.get('resolution', 'check') # check, rename, overwrite, cancel
+        reuse_temp_name = data.get('temp_filename')
         
-        try:
-            resp = requests.get(url, headers=headers, timeout=15, stream=True)
-            resp.raise_for_status()
-        except Exception as e:
-            return jsonify({"success": False, "msg": f"下载失败: {str(e)}"})
-
-        # 2. 确定文件名
-        # 尝试从 URL 中解析文件名
-        parsed_url = urlparse(url)
-        filename = os.path.basename(unquote(parsed_url.path))
-        if not filename or not filename.lower().endswith('.png'):
-            # 如果 URL 没有文件名或不是 png，尝试从 Content-Disposition 获取，或者使用时间戳
-            cd = resp.headers.get('content-disposition')
-            if cd:
-                # 简单的解析，实际可能需要更复杂的正则
-                import re
-                fname = re.findall('filename="?([^"]+)"?', cd)
-                if fname: filename = fname[0]
+        # === 1. 获取/下载临时文件 ===
+        if reuse_temp_name:
+            # 复用已有临时文件
+            safe_temp = os.path.basename(reuse_temp_name) # 防止路径遍历
+            temp_path = os.path.join(TEMP_DIR, safe_temp)
+            if not os.path.exists(temp_path):
+                return jsonify({"success": False, "msg": "临时文件已过期或不存在，请重新导入"})
             
-            if not filename or not filename.lower().endswith('.png'):
-                filename = f"import_{int(time.time())}.png"
+            # 如果是取消操作
+            if resolution == 'cancel':
+                os.remove(temp_path)
+                return jsonify({"success": True, "msg": "已取消导入"})
+                
+        else:
+            if not url:
+                return jsonify({"success": False, "msg": "URL 不能为空"})
 
-        # 3. 保存到临时文件进行检测
-        temp_filename = f"temp_dl_{int(time.time())}_{filename}"
-        temp_path = os.path.join(BASE_DIR, temp_filename)
-        
-        with open(temp_path, 'wb') as f:
-            for chunk in resp.iter_content(chunk_size=8192):
-                f.write(chunk)
+            # 下载逻辑
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Referer': url
+            }
+            
+            # 确定临时文件名
+            parsed_url = urlparse(url)
+            filename_hint = os.path.basename(unquote(parsed_url.path))
+            if not filename_hint: filename_hint = f"import_{int(time.time())}.png"
+            
+            temp_filename = f"temp_dl_{int(time.time())}_{filename_hint}"
+            temp_path = os.path.join(TEMP_DIR, temp_filename)
+            
+            try:
+                resp = requests.get(url, headers=headers, timeout=15, stream=True)
+                resp.raise_for_status()
+                with open(temp_path, 'wb') as f:
+                    for chunk in resp.iter_content(chunk_size=8192):
+                        f.write(chunk)
+            except Exception as e:
+                if os.path.exists(temp_path): os.remove(temp_path)
+                return jsonify({"success": False, "msg": f"下载失败: {str(e)}"})
 
-        # 4. 检测是否为有效角色卡
+        # === 2. 解析元数据 ===
         info = extract_card_info(temp_path)
         if not info:
-            os.remove(temp_path)
-            return jsonify({"success": False, "msg": "下载的文件不是有效的 PNG 角色卡 (未找到元数据)"})
+            if os.path.exists(temp_path): os.remove(temp_path)
+            return jsonify({"success": False, "msg": "文件不是有效的 PNG 角色卡 (未找到元数据)"})
 
-        # 5. 移动到目标目录 (防重名)
+        # === 3. 确定目标路径和文件名 ===
         target_dir = os.path.join(CARDS_FOLDER, target_category)
         if not os.path.exists(target_dir):
             os.makedirs(target_dir)
 
-        # 使用角色名作为文件名的一部分，或者保持原名
-        # 这里尽量保持原文件名，但处理重名
-        final_save_path = os.path.join(target_dir, filename)
-        name_part, ext_part = os.path.splitext(filename)
-        counter = 1
-        while os.path.exists(final_save_path):
-            final_save_path = os.path.join(target_dir, f"{name_part}_{counter}{ext_part}")
-            counter += 1
-        
-        shutil.move(temp_path, final_save_path)
-        final_filename = os.path.basename(final_save_path)
-
-        # 6. 构造返回数据 (用于前端立即渲染)
         data_block = info.get('data', {}) if 'data' in info else info
+        char_name = info.get('name') or data_block.get('name')
+        
+        # 确定基础文件名
+        final_filename = os.path.basename(temp_path) # fallback
+        if char_name:
+            safe_name = sanitize_filename(char_name)
+            final_filename = f"{safe_name}.png"
+            
+        target_save_path = os.path.join(target_dir, final_filename)
+        
+        # === 4. 冲突检测与处理 ===
+        conflict = os.path.exists(target_save_path)
+        
+        if conflict:
+            if resolution == 'check':
+                # --- 发现冲突，返回对比数据 ---
+                
+                # 1. 获取现有卡数据
+                existing_info = extract_card_info(target_save_path)
+                existing_data = existing_info.get('data', {}) if 'data' in existing_info else existing_info
+                
+                # 计算 Token
+                ex_calc = existing_data.copy()
+                if 'name' not in ex_calc: ex_calc['name'] = existing_info.get('name', '')
+                ex_tokens = calculate_token_count(ex_calc)
+                
+                existing_meta = {
+                    "char_name": existing_info.get('name') or existing_data.get('name'),
+                    "token_count": ex_tokens,
+                    "file_size": os.path.getsize(target_save_path),
+                    "image_url": f"/cards_file/{quote(target_category + '/' + final_filename if target_category else final_filename)}?t={time.time()}"
+                }
+
+                # 2. 获取新卡数据 (Temp)
+                new_calc = data_block.copy()
+                if 'name' not in new_calc: new_calc['name'] = char_name
+                new_tokens = calculate_token_count(new_calc)
+                
+                new_meta = {
+                    "char_name": char_name,
+                    "token_count": new_tokens,
+                    "file_size": os.path.getsize(temp_path),
+                    # 临时文件由于在外部目录，需要特殊路由或 base64，
+                    # 这里为了简化，前端可以使用 FileReader 读取 blob (如果支持)，
+                    # 或者我们可以提供一个临时文件预览接口。
+                    # 鉴于复杂度，我们可以先尝试不显示新图，或者把 temp 移到 thumb 目录暂时显示？
+                    # 简单方案：前端已经有 URL 了，直接用 URL 显示预览！
+                    "image_url": url # 直接用源 URL
+                }
+                
+                return jsonify({
+                    "success": False,
+                    "status": "conflict",
+                    "msg": "检测到同名角色卡",
+                    "temp_filename": os.path.basename(temp_path),
+                    "existing_card": existing_meta,
+                    "new_card": new_meta
+                })
+                
+            elif resolution == 'rename':
+                # --- 追加模式 (Auto Increment) ---
+                name_part, ext_part = os.path.splitext(final_filename)
+                counter = 1
+                while os.path.exists(target_save_path):
+                    target_save_path = os.path.join(target_dir, f"{name_part}_{counter}{ext_part}")
+                    counter += 1
+                # Proceed to save
+                
+            elif resolution == 'overwrite':
+                # --- 覆盖模式 ---
+                # 直接使用 target_save_path，覆盖原文件
+                # 建议先删除原文件，以防 shutil.move 行为不一致
+                if os.path.exists(target_save_path):
+                    os.remove(target_save_path)
+                # Proceed to save
+                
+            else:
+                # 未知 resolution
+                if os.path.exists(temp_path): os.remove(temp_path)
+                return jsonify({"success": False, "msg": f"无效的解决策略: {resolution}"})
+        
+        # === 5. 执行保存 (Move) ===
+        shutil.move(temp_path, target_save_path)
+        
+        # 最终文件名
+        final_filename = os.path.basename(target_save_path)
+        rel_path = final_filename if not target_category else f"{target_category}/{final_filename}"
+        
+        # === 6. 更新缓存与返回 ===
+        update_card_cache(rel_path, target_save_path)
+        schedule_reload(reason="import_from_url")
+
+        # 构造返回数据
         tags = data_block.get('tags', [])
         if isinstance(tags, str): tags = [t.strip() for t in tags.split(',') if t.strip()]
         elif tags is None: tags = []
-        
-        char_name = info.get('name') or data_block.get('name') or name_part
-        rel_path = final_filename if not target_category else f"{target_category}/{final_filename}"
-
-        # === 立即手动更新此文件的缓存到数据库 ===
-        # 这样即使扫描器还没跑，数据库里也有了，防止 reload_from_db 加载不到
-        update_card_cache(rel_path, final_save_path)
-
-        # 更新缓存
-        schedule_reload(reason="import_from_url")
 
         new_card = {
             "id": rel_path,
             "filename": final_filename,
             "char_name": char_name,
             "description": data_block.get('description', ''),
-            "first_mes": data_block.get('first_mes', ''),
-            "alternate_greetings": data_block.get('alternate_greetings', []),
-            "mes_example": data_block.get('mes_example', ''),
-            "creator_notes": data_block.get('creator_notes', ''),
-            "character_book": data_block.get('character_book', None),
-            "ui_summary": "",
-            "source_link": "",
             "tags": tags,
             "category": target_category,
             "creator": data_block.get('creator', ''),
             "char_version": data_block.get('character_version', ''),
-            "raw_data": info,
             "image_url": f"/cards_file/{quote(rel_path)}",
             "thumb_url": f"/api/thumbnail/{quote(rel_path)}",
-            "last_modified": time.time()
+            "last_modified": time.time(),
+            "token_count": calculate_token_count(data_block)
         }
 
         return jsonify({"success": True, "new_card": new_card})
 
     except Exception as e:
         logger.error(f"Import URL error: {e}")
-        # 清理临时文件
-        if 'temp_path' in locals() and os.path.exists(temp_path):
-            os.remove(temp_path)
+        if temp_path and os.path.exists(temp_path):
+            try: os.remove(temp_path)
+            except: pass
         return jsonify({"success": False, "msg": str(e)})
 
 @bp.route('/api/change_image', methods=['POST'])

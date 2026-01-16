@@ -5,7 +5,7 @@ import traceback
 from flask import Flask
 
 # === 基础设施 ===
-from core.config import INTERNAL_DIR
+from core.config import INTERNAL_DIR, BASE_DIR, TEMP_DIR
 from core.context import ctx
 
 # === 数据与服务 ===
@@ -45,6 +45,30 @@ def create_app():
     
     return app
 
+def cleanup_temp_files():
+    """
+    启动时清空临时目录 (data/temp)
+    """
+    try:
+        if not os.path.exists(TEMP_DIR):
+            return
+
+        count = 0
+        for filename in os.listdir(TEMP_DIR):
+            full_path = os.path.join(TEMP_DIR, filename)
+            try:
+                if os.path.isfile(full_path) or os.path.islink(full_path):
+                    os.remove(full_path)
+                    count += 1
+                # 如果有子目录是否需要删除？通常 temp 不应该有子目录，暂只删文件
+            except Exception as e:
+                logger.warning(f"Failed to delete temp file {filename}: {e}")
+        
+        if count > 0:
+            logger.info(f"Cleaned up {count} files in temporary directory.")
+    except Exception as e:
+        logger.warning(f"Error during temp directory cleanup: {e}")
+
 def init_services():
     """
     后台服务初始化函数。
@@ -52,6 +76,9 @@ def init_services():
     """
     print("正在启动后台服务...")
     ctx.set_status(status="initializing", message="正在初始化数据库...")
+    
+    # 0. 清理残留临时文件
+    cleanup_temp_files()
     
     try:
         # 1. 数据库初始化 (建表、迁移)
