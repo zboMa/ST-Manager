@@ -5,6 +5,7 @@ import time
 import uuid
 import base64
 import logging
+import re
 from PIL import Image, PngImagePlugin
 from core.consts import SIDECAR_EXTENSIONS
 from core.utils.data import deterministic_sort, normalize_card_v3
@@ -203,3 +204,17 @@ def write_snapshot_file(src_path, dst_path, data, is_png, compact=False):
         except:
             pass
         return False
+
+def _sanitize_filename(name):
+    """
+    去除文件名中的非法字符 (Windows/Linux)
+    非法字符包括: \ / : * ? " < > | 以及控制字符
+    """
+    if not name:
+        return ""
+    # 将非法字符替换为下划线
+    name = re.sub(r'[\\/:*?"<>|]', '_', name)
+    # 去除控制字符 (如换行符等)
+    name = re.sub(r'[\x00-\x1f]', '', name)
+    # 去除首尾空格
+    return name.strip()

@@ -28,7 +28,7 @@ from core.utils.image import (
     extract_card_info, write_card_metadata,
     find_sidecar_image, clean_thumbnail_cache,
     clean_sidecar_images, resize_image_if_needed )
-from core.utils.filesystem import safe_move_to_trash, is_card_file
+from core.utils.filesystem import safe_move_to_trash, is_card_file, _sanitize_filename
 from core.utils.hash import get_file_hash_and_size
 from core.utils.text import calculate_token_count
 from core.utils.data import get_wi_meta, normalize_card_v3, deterministic_sort
@@ -896,6 +896,33 @@ def api_upload_cards():
                 if info:
                     # 数据清洗逻辑（保持原样）
                     data_block = info.get('data', {}) if 'data' in info else info
+                    
+                    extracted_name = info.get('name') or data_block.get('name')
+                    if extracted_name:
+                        safe_name = _sanitize_filename(extracted_name)
+                        # 只有当清洗后的名字有效，且跟当前文件名不一样时才改名
+                        if safe_name and safe_name != os.path.splitext(filename)[0]:
+                            new_filename_base = safe_name + ext  # ext 包含 .
+                            new_full_path = os.path.join(target_dir, new_filename_base)
+                            
+                            # 如果新名字已存在，加后缀处理冲突
+                            rename_counter = 1
+                            final_new_name = new_filename_base
+                            while os.path.exists(os.path.join(target_dir, final_new_name)):
+                                final_new_name = f"{safe_name}_{rename_counter}{ext}"
+                                rename_counter += 1
+                            
+                            new_real_path = os.path.join(target_dir, final_new_name)
+                            
+                            try:
+                                # 执行重命名
+                                os.rename(save_path, new_real_path)
+                                # 更新后续逻辑使用的变量
+                                save_path = new_real_path
+                                filename = final_new_name
+                            except Exception as rename_err:
+                                print(f"Auto-rename failed: {rename_err}")
+                    
                     tags = data_block.get('tags', [])
                     if isinstance(tags, str): 
                         tags = [t.strip() for t in tags.split(',') if t.strip()]
@@ -1028,16 +1055,7 @@ def api_import_from_url():
         parsed_url = urlparse(url)
         filename = os.path.basename(unquote(parsed_url.path))
         if not filename or not filename.lower().endswith('.png'):
-            # 如果 URL 没有文件名或不是 png，尝试从 Content-Disposition 获取，或者使用时间戳
-            cd = resp.headers.get('content-disposition')
-            if cd:
-                # 简单的解析，实际可能需要更复杂的正则
-                import re
-                fname = re.findall('filename="?([^"]+)"?', cd)
-                if fname: filename = fname[0]
-            
-            if not filename or not filename.lower().endswith('.png'):
-                filename = f"import_{int(time.time())}.png"
+            filename = f"import_{int(time.time())}.png"
 
         # 3. 保存到临时文件进行检测
         temp_filename = f"temp_dl_{int(time.time())}_{filename}"
@@ -1053,15 +1071,28 @@ def api_import_from_url():
             os.remove(temp_path)
             return jsonify({"success": False, "msg": "下载的文件不是有效的 PNG 角色卡 (未找到元数据)"})
 
+        name_part = os.path.splitext(filename)[0] # 默认为 URL 中的名字
+        ext_part = ".png" # 强制 png
+
+        # 尝试从卡片信息中获取名字
+        data_block = info.get('data', {}) if 'data' in info else info
+        char_name = info.get('name') or data_block.get('name')
+        
+        if char_name:
+            safe_name = _sanitize_filename(char_name)
+            if safe_name:
+                name_part = safe_name
+        
+        # 重组文件名
+        filename = name_part + ext_part
+
         # 5. 移动到目标目录 (防重名)
         target_dir = os.path.join(CARDS_FOLDER, target_category)
         if not os.path.exists(target_dir):
             os.makedirs(target_dir)
 
-        # 使用角色名作为文件名的一部分，或者保持原名
-        # 这里尽量保持原文件名，但处理重名
         final_save_path = os.path.join(target_dir, filename)
-        name_part, ext_part = os.path.splitext(filename)
+        # 冲突处理
         counter = 1
         while os.path.exists(final_save_path):
             final_save_path = os.path.join(target_dir, f"{name_part}_{counter}{ext_part}")
@@ -1070,13 +1101,13 @@ def api_import_from_url():
         shutil.move(temp_path, final_save_path)
         final_filename = os.path.basename(final_save_path)
 
-        # 6. 构造返回数据 (用于前端立即渲染)
-        data_block = info.get('data', {}) if 'data' in info else info
+        # 6. 构造返回数据 (用于前端立即渲染)  
+        char_name = char_name or name_part
+        
         tags = data_block.get('tags', [])
         if isinstance(tags, str): tags = [t.strip() for t in tags.split(',') if t.strip()]
         elif tags is None: tags = []
         
-        char_name = info.get('name') or data_block.get('name') or name_part
         rel_path = final_filename if not target_category else f"{target_category}/{final_filename}"
 
         # === 立即手动更新此文件的缓存到数据库 ===
