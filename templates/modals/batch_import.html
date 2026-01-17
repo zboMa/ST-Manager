@@ -1,0 +1,156 @@
+<!-- 批量导入确认模态框 -->
+<div x-show="showBatchImportModal" x-data="batchImportModal" x-cloak class="modal-overlay z-modal-popover">
+    <div class="modal-container flex flex-col" style="width: 900px; height: 85vh; max-height: 900px;" @click.away="/* 禁止点击背景关闭 */">
+        
+        <!-- Header -->
+        <div style="padding: 1.25rem; border-bottom: 1px solid var(--border-light); background: var(--bg-sub); flex-shrink: 0;">
+            <div class="flex justify-between items-center">
+                <div class="flex items-center gap-3">
+                    <span class="text-2xl">📥</span>
+                    <div>
+                        <h3 class="font-bold text-lg text-[var(--text-main)]">批量导入确认</h3>
+                        <p class="text-xs text-[var(--text-dim)]">
+                            目标路径: <span class="font-mono text-accent" x-text="targetCategory || '根目录'"></span>
+                            <span class="mx-2">|</span>
+                            共 <span x-text="totalCount"></span> 个文件，发现 <span class="text-yellow-500 font-bold" x-text="conflictCount"></span> 个冲突
+                        </p>
+                    </div>
+                </div>
+                <button @click="cancelImport()" class="text-gray-500 hover:text-red-400 text-xl px-2">✕</button>
+            </div>
+
+            <!-- 批量操作栏 -->
+            <div x-show="conflictCount > 0" class="mt-4 flex items-center gap-3 bg-[var(--bg-panel)] p-2 rounded border border-[var(--border-light)]">
+                <span class="text-xs font-bold text-[var(--text-dim)] uppercase ml-1">解决所有冲突:</span>
+                <button @click="applyToAllConflicts('rename')" class="btn-secondary py-1 px-3 text-xs flex items-center gap-1 hover:text-blue-400">
+                    <span>➕</span> 全部追加 (Rename)
+                </button>
+                <button @click="applyToAllConflicts('overwrite')" class="btn-secondary py-1 px-3 text-xs flex items-center gap-1 hover:text-red-400">
+                    <span>🔄</span> 全部覆盖 (Overwrite)
+                </button>
+                <button @click="applyToAllConflicts('skip')" class="btn-secondary py-1 px-3 text-xs flex items-center gap-1 hover:text-gray-400">
+                    <span>🚫</span> 全部跳过 (Skip)
+                </button>
+            </div>
+        </div>
+
+        <!-- Body: List -->
+        <div class="flex-1 overflow-y-auto custom-scrollbar p-3 bg-[var(--bg-body)]">
+            <div class="flex flex-col gap-3">
+                <template x-for="(item, idx) in importItems" :key="idx">
+                    
+                    <!-- 卡片容器 -->
+                    <div class="rounded border transition-colors overflow-hidden"
+                        :class="item.status === 'conflict' ? 'bg-[var(--bg-panel)] border-yellow-500/30' : 'bg-[var(--bg-panel)] border-[var(--border-light)]'">
+                        
+                        <!-- 1. 冲突模式：左右对比布局 -->
+                        <div x-show="item.status === 'conflict'" class="flex flex-col">
+                            <!-- 标题栏 -->
+                            <div class="px-3 py-2 border-b border-[var(--border-light)] bg-[var(--bg-sub)] flex justify-between items-center">
+                                <div class="flex items-center gap-2 overflow-hidden">
+                                    <span class="text-yellow-500 text-lg">⚠️</span>
+                                    <span class="font-bold text-sm truncate" x-text="item.filename" :title="item.filename"></span>
+                                    <span class="text-[10px] bg-yellow-500/10 text-yellow-500 px-1.5 rounded border border-yellow-500/20">冲突</span>
+                                </div>
+                                
+                                <!-- 操作选择 -->
+                                <select x-model="item.action" 
+                                    class="text-xs bg-[var(--bg-panel)] border rounded py-1 px-2 outline-none cursor-pointer"
+                                    :class="{
+                                        'border-yellow-500 text-yellow-500': item.action === 'rename',
+                                        'border-red-500 text-red-400': item.action === 'overwrite',
+                                        'border-gray-500 text-gray-500': item.action === 'skip'
+                                    }">
+                                    <option value="rename">➕ 追加新文件</option>
+                                    <option value="overwrite">🔄 覆盖旧文件</option>
+                                    <option value="skip">🚫 跳过不导入</option>
+                                </select>
+                            </div>
+
+                            <!-- 对比区域 -->
+                            <div class="grid grid-cols-2 gap-0 relative">
+                                <!-- VS 中轴线 -->
+                                <div class="absolute left-1/2 top-0 bottom-0 w-[1px] bg-[var(--border-light)] z-0"></div>
+                                <div class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-[var(--bg-panel)] border border-[var(--border-light)] text-[10px] px-1 rounded z-10 text-[var(--text-dim)]">VS</div>
+
+                                <!-- 左侧：现有文件 -->
+                                <div class="p-3 flex items-center gap-3 relative" :class="item.action === 'overwrite' ? 'opacity-50 grayscale' : ''">
+                                    <div class="w-12 h-16 bg-black rounded overflow-hidden flex-shrink-0 border border-[var(--border-light)]">
+                                        <img :src="item.existing_info?.preview_url" class="w-full h-full object-cover opacity-80">
+                                    </div>
+                                    <div class="min-w-0 flex-1">
+                                        <div class="text-[10px] text-[var(--text-dim)] uppercase">Existing (原有)</div>
+                                        <div class="font-bold text-sm truncate text-[var(--text-main)]" x-text="item.existing_info?.char_name"></div>
+                                        <div class="flex gap-2 mt-1 text-[10px] text-[var(--text-dim)]">
+                                            <span x-text="(item.existing_info?.token_count || 0) + ' Tk'"></span>
+                                            <span x-text="formatSize(item.existing_info?.file_size)"></span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- 右侧：新文件 -->
+                                <div class="p-3 flex items-center gap-3 relative" :class="item.action === 'skip' ? 'opacity-50 grayscale' : ''">
+                                    <div class="w-12 h-16 bg-black rounded overflow-hidden flex-shrink-0 border border-[var(--border-light)]">
+                                        <img :src="item.new_info?.preview_url" class="w-full h-full object-cover">
+                                    </div>
+                                    <div class="min-w-0 flex-1">
+                                        <div class="text-[10px] text-green-500 uppercase font-bold">New (导入)</div>
+                                        <div class="font-bold text-sm truncate text-green-400" x-text="item.new_info?.char_name"></div>
+                                        <div class="flex gap-2 mt-1 text-[10px] text-[var(--text-dim)]">
+                                            <span x-text="(item.new_info?.token_count || 0) + ' Tk'"></span>
+                                            <span x-text="formatSize(item.new_info?.file_size)"></span>
+                                        </div>
+                                    </div>
+                                    <!-- Action Badge -->
+                                    <div class="absolute right-2 top-2 text-xs font-bold">
+                                        <span x-show="item.action==='rename'" class="text-yellow-500">➕</span>
+                                        <span x-show="item.action==='overwrite'" class="text-red-500">🔄</span>
+                                        <span x-show="item.action==='skip'" class="text-gray-500">🚫</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 2. 正常模式：简单列表 -->
+                        <div x-show="item.status === 'ok'" class="flex items-center gap-3 p-2">
+                            <!-- 小图 -->
+                            <div class="w-10 h-10 bg-black rounded overflow-hidden flex-shrink-0 border border-[var(--border-light)]">
+                                <img :src="item.new_info?.preview_url" class="w-full h-full object-cover">
+                            </div>
+                            
+                            <div class="flex-1 min-w-0">
+                                <div class="flex items-center gap-2">
+                                    <span class="font-bold text-sm truncate text-[var(--text-main)]" x-text="item.new_info?.char_name || item.filename"></span>
+                                    <span class="text-[10px] bg-green-500/10 text-green-500 px-1.5 rounded border border-green-500/20">NEW</span>
+                                </div>
+                                <div class="text-[10px] text-[var(--text-dim)] flex gap-2">
+                                    <span x-text="item.filename"></span>
+                                    <span>|</span>
+                                    <span x-text="(item.new_info?.token_count || 0) + ' Tk'"></span>
+                                </div>
+                            </div>
+
+                            <div class="text-green-500 text-xs px-2 flex items-center gap-1">
+                                <span>✅</span> 准备导入
+                            </div>
+                        </div>
+
+                    </div>
+                </template>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div style="padding: 1rem; border-top: 1px solid var(--border-light); background: var(--bg-sub); flex-shrink: 0;">
+            <div class="flex justify-end gap-3">
+                <button @click="cancelImport()" class="btn-secondary px-6 py-2 rounded">
+                    取消
+                </button>
+                <button @click="commitImport()" :disabled="isLoading" class="btn-primary px-6 py-2 rounded shadow-lg flex items-center gap-2">
+                    <span x-show="isLoading" class="animate-spin">⏳</span>
+                    <span x-text="isLoading ? '处理中...' : '开始导入'"></span>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>

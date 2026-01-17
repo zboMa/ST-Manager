@@ -9,7 +9,7 @@ import sqlite3
 import logging
 from urllib.parse import quote, unquote, urlparse
 from PIL import Image
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, send_from_directory 
 
 # === 基础设施 ===
 from core.config import CARDS_FOLDER, DATA_DIR, BASE_DIR, THUMB_FOLDER, TRASH_FOLDER, DEFAULT_DB_PATH, TEMP_DIR, load_config, current_config
@@ -36,6 +36,46 @@ from core.utils.data import get_wi_meta, normalize_card_v3, deterministic_sort
 logger = logging.getLogger(__name__)
 
 bp = Blueprint('cards', __name__)
+
+# === 辅助函数：合并 Tag 逻辑 ===
+def _merge_tags_into_new_info(old_path, new_info):
+    """
+    读取旧文件的 Tags，合并到新文件的元数据对象中。
+    返回合并后的 tags 列表，如果不需合并则返回 None。
+    """
+    try:
+        if not os.path.exists(old_path):
+            return None
+            
+        old_info = extract_card_info(old_path)
+        if not old_info:
+            return None
+            
+        # 提取旧 Tags
+        old_data = old_info.get('data', {}) if 'data' in old_info else old_info
+        old_tags = old_data.get('tags', []) or []
+        if isinstance(old_tags, str): old_tags = old_tags.split(',')
+        
+        # 提取新 Tags
+        new_data = new_info.get('data', {}) if 'data' in new_info else new_info
+        new_tags = new_data.get('tags', []) or []
+        if isinstance(new_tags, str): new_tags = new_tags.split(',')
+        
+        # 合并去重
+        merged_set = set([str(t).strip() for t in old_tags if str(t).strip()])
+        merged_set.update([str(t).strip() for t in new_tags if str(t).strip()])
+        final_tags = sorted(list(merged_set))
+        
+        # 更新新数据对象 (同时兼容 V2/V3 结构)
+        if 'data' in new_info:
+            new_info['data']['tags'] = final_tags
+        else:
+            new_info['tags'] = final_tags
+            
+        return final_tags
+    except Exception as e:
+        logger.error(f"Tag merge failed: {e}")
+        return None
 
 @bp.route('/api/list_cards')
 def api_list_cards():
@@ -1108,11 +1148,6 @@ def api_import_from_url():
                     "char_name": char_name,
                     "token_count": new_tokens,
                     "file_size": os.path.getsize(temp_path),
-                    # 临时文件由于在外部目录，需要特殊路由或 base64，
-                    # 这里为了简化，前端可以使用 FileReader 读取 blob (如果支持)，
-                    # 或者我们可以提供一个临时文件预览接口。
-                    # 鉴于复杂度，我们可以先尝试不显示新图，或者把 temp 移到 thumb 目录暂时显示？
-                    # 简单方案：前端已经有 URL 了，直接用 URL 显示预览！
                     "image_url": url # 直接用源 URL
                 }
                 
@@ -1132,15 +1167,18 @@ def api_import_from_url():
                 while os.path.exists(target_save_path):
                     target_save_path = os.path.join(target_dir, f"{name_part}_{counter}{ext_part}")
                     counter += 1
-                # Proceed to save
                 
             elif resolution == 'overwrite':
-                # --- 覆盖模式 ---
-                # 直接使用 target_save_path，覆盖原文件
-                # 建议先删除原文件，以防 shutil.move 行为不一致
+                # 1. 读取旧文件的 Tags 并合并到 info 对象
+                merged_tags = _merge_tags_into_new_info(target_save_path, info)
+                
+                # 2. 如果有合并发生，将更新后的 info 写入 temp 文件
+                if merged_tags is not None:
+                    write_card_metadata(temp_path, info)
+                    
+                # 3. 删除旧文件 (为 move 做准备)
                 if os.path.exists(target_save_path):
                     os.remove(target_save_path)
-                # Proceed to save
                 
             else:
                 # 未知 resolution
@@ -1154,14 +1192,15 @@ def api_import_from_url():
         final_filename = os.path.basename(target_save_path)
         rel_path = final_filename if not target_category else f"{target_category}/{final_filename}"
         
+        final_hash, final_size = get_file_hash_and_size(target_save_path)
+        mtime = os.path.getmtime(target_save_path)
+        
         # === 6. 更新缓存与返回 ===
         update_card_cache(rel_path, target_save_path)
         schedule_reload(reason="import_from_url")
 
-        # 构造返回数据
+        data_block = info.get('data', {}) if 'data' in info else info
         tags = data_block.get('tags', [])
-        if isinstance(tags, str): tags = [t.strip() for t in tags.split(',') if t.strip()]
-        elif tags is None: tags = []
 
         new_card = {
             "id": rel_path,
@@ -1172,10 +1211,13 @@ def api_import_from_url():
             "category": target_category,
             "creator": data_block.get('creator', ''),
             "char_version": data_block.get('character_version', ''),
-            "image_url": f"/cards_file/{quote(rel_path)}",
-            "thumb_url": f"/api/thumbnail/{quote(rel_path)}",
-            "last_modified": time.time(),
-            "token_count": calculate_token_count(data_block)
+            "image_url": f"/cards_file/{quote(rel_path)}?t={int(mtime)}",
+            "thumb_url": f"/api/thumbnail/{quote(rel_path)}?t={int(mtime)}",
+            "last_modified": mtime,
+            "token_count": calculate_token_count(data_block),
+            "file_hash": final_hash,
+            "file_size": final_size,
+            "is_bundle": False
         }
 
         return jsonify({"success": True, "new_card": new_card})
@@ -2673,3 +2715,219 @@ def api_upload_note_image():
     except Exception as e:
         logger.error(f"Note image upload error: {e}")
         return jsonify({"success": False, "msg": str(e)})
+
+@bp.route('/api/upload/stage', methods=['POST'])
+def api_upload_stage():
+    """
+    第一步：上传文件到临时区，并分析冲突
+    """
+    try:
+        # 1. 准备暂存区
+        batch_id = uuid.uuid4().hex
+        stage_dir = os.path.join(TEMP_DIR, 'batch_upload', batch_id)
+        os.makedirs(stage_dir, exist_ok=True)
+
+        target_category = request.form.get('category', '')
+        if target_category == "根目录": target_category = ""
+        
+        # 目标真实路径
+        target_base_dir = os.path.join(CARDS_FOLDER, target_category)
+        if not os.path.exists(target_base_dir): os.makedirs(target_base_dir)
+
+        files = request.files.getlist('files')
+        report = []
+
+        for file in files:
+            if not file or not file.filename: continue
+            
+            # 保存到暂存区
+            safe_name = sanitize_filename(file.filename)
+            temp_path = os.path.join(stage_dir, safe_name)
+            file.save(temp_path)
+
+            # 解析新上传文件的元数据 (用于预览)
+            new_info_raw = extract_card_info(temp_path) or {}
+            new_data_block = new_info_raw.get('data', {}) if 'data' in new_info_raw else new_info_raw
+            
+            # 计算新卡片 Token
+            calc_data_new = new_data_block.copy()
+            if 'name' not in calc_data_new: calc_data_new['name'] = new_info_raw.get('name', '')
+            new_tokens = calculate_token_count(calc_data_new)
+
+            new_meta = {
+                "char_name": calc_data_new.get('name', os.path.splitext(safe_name)[0]),
+                "token_count": new_tokens,
+                "file_size": os.path.getsize(temp_path),
+                # 生成临时预览链接
+                "preview_url": f"/api/temp_preview/{batch_id}/{safe_name}"
+            }
+
+            # 分析冲突
+            target_path = os.path.join(target_base_dir, safe_name)
+            status = "ok"
+            existing_meta = None
+
+            if os.path.exists(target_path):
+                status = "conflict"
+                # 解析现有文件元数据
+                ex_info_raw = extract_card_info(target_path) or {}
+                ex_data_block = ex_info_raw.get('data', {}) if 'data' in ex_info_raw else ex_info_raw
+                
+                # 计算旧卡片 Token
+                calc_data_ex = ex_data_block.copy()
+                if 'name' not in calc_data_ex: calc_data_ex['name'] = ex_info_raw.get('name', '')
+                ex_tokens = calculate_token_count(calc_data_ex)
+                
+                # 计算现有文件的 URL (相对路径 ID)
+                rel_id = f"{target_category}/{safe_name}" if target_category else safe_name
+                
+                existing_meta = {
+                    "char_name": calc_data_ex.get('name', 'Unknown'),
+                    "token_count": ex_tokens,
+                    "file_size": os.path.getsize(target_path),
+                    "mtime": os.path.getmtime(target_path),
+                    # 使用正式文件 URL
+                    "preview_url": f"/cards_file/{quote(rel_id)}?t={int(time.time())}"
+                }
+
+            report.append({
+                "filename": safe_name,
+                "status": status,
+                "new_info": new_meta,
+                "existing_info": existing_meta
+            })
+
+        return jsonify({
+            "success": True,
+            "batch_id": batch_id,
+            "report": report
+        })
+
+    except Exception as e:
+        logger.error(f"Stage upload failed: {e}")
+        return jsonify({"success": False, "msg": str(e)})
+
+
+@bp.route('/api/upload/commit', methods=['POST'])
+def api_upload_commit():
+    """
+    第二步：执行导入提交
+    """
+    try:
+        suppress_fs_events(5.0) 
+        
+        data = request.json
+        batch_id = data.get('batch_id')
+        category = data.get('category', '')
+        decisions = data.get('decisions', [])
+
+        if not batch_id: return jsonify({"success": False, "msg": "Missing batch_id"})
+
+        stage_dir = os.path.join(TEMP_DIR, 'batch_upload', batch_id)
+        target_base_dir = os.path.join(CARDS_FOLDER, category)
+        
+        if not os.path.exists(stage_dir):
+            return jsonify({"success": False, "msg": "Upload session expired"})
+
+        success_count = 0
+        new_cards = []
+
+        for item in decisions:
+            filename = item['filename']
+            action = item['action'] # overwrite, rename, skip
+            
+            src_path = os.path.join(stage_dir, filename)
+            if not os.path.exists(src_path): continue
+
+            if action == 'skip':
+                continue
+
+            # 确定最终路径
+            final_filename = filename
+            dst_path = os.path.join(target_base_dir, filename)
+
+            if action == 'rename':
+                name, ext = os.path.splitext(filename)
+                counter = 1
+                while os.path.exists(dst_path):
+                    final_filename = f"{name}_{counter}{ext}"
+                    dst_path = os.path.join(target_base_dir, final_filename)
+                    counter += 1
+            
+            # 执行文件移动 (覆盖模式先删旧)
+            if action == 'overwrite' and os.path.exists(dst_path):
+                # 解析暂存区文件
+                src_info = extract_card_info(src_path)
+                if src_info:
+                    # 合并 Tags：读取 dst_path 的 tag 并合并到 src_info
+                    merged = _merge_tags_into_new_info(dst_path, src_info)
+                    if merged:
+                        # 如果有合并，将新数据写回 src_path
+                        write_card_metadata(src_path, src_info)
+                
+                # 删除目标，准备覆盖
+                os.remove(dst_path)
+
+            shutil.move(src_path, dst_path)
+            
+            # 更新数据库 & 构建返回对象
+            rel_id = f"{category}/{final_filename}" if category else final_filename
+            info = extract_card_info(dst_path)
+            
+            # 计算属性
+            final_hash, final_size = get_file_hash_and_size(dst_path)
+            mtime = os.path.getmtime(dst_path)
+            
+            update_card_cache(rel_id, dst_path, parsed_info=info, file_hash=final_hash, file_size=final_size, mtime=mtime)
+            
+            # 构建返回给前端的卡片对象
+            if info:
+                data_block = info.get('data', {}) if 'data' in info else info
+                calc_data = data_block.copy()
+                char_name = info.get('name') or data_block.get('name') or os.path.splitext(final_filename)[0]
+                if 'name' not in calc_data: calc_data['name'] = char_name
+                
+                card_obj = {
+                    "id": rel_id,
+                    "filename": final_filename,
+                    "char_name": char_name,
+                    "description": data_block.get('description', ''),
+                    "tags": data_block.get('tags', []) or [],
+                    "category": category,
+                    "creator": data_block.get('creator', ''),
+                    "char_version": data_block.get('character_version', ''),
+                    "last_modified": mtime,
+                    "token_count": calculate_token_count(calc_data),
+                    "image_url": f"/cards_file/{quote(rel_id)}?t={int(mtime)}",
+                    "thumb_url": f"/api/thumbnail/{quote(rel_id)}?t={int(mtime)}",
+                    "file_hash": final_hash,
+                    "file_size": final_size,
+                    "is_bundle": False
+                }
+                new_cards.append(card_obj)
+            
+            success_count += 1
+
+        # 清理
+        try: shutil.rmtree(stage_dir)
+        except: pass
+
+        return jsonify({
+            "success": True,
+            "count": success_count,
+            "new_cards": new_cards 
+        })
+
+    except Exception as e:
+        logger.error(f"Commit upload failed: {e}")
+        return jsonify({"success": False, "msg": str(e)})
+    
+# 提供暂存区的图片预览
+@bp.route('/api/temp_preview/<batch_id>/<path:filename>')
+def serve_temp_preview(batch_id, filename):
+    """
+    提供批量导入暂存区的图片预览
+    """
+    # 安全性检查：只允许访问 TEMP_DIR 下的 batch_upload 目录
+    stage_dir = os.path.join(TEMP_DIR, 'batch_upload', batch_id)
+    return send_from_directory(stage_dir, filename)

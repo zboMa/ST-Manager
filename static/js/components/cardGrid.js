@@ -124,6 +124,53 @@ export default function cardGrid() {
                 }
             });
 
+            // 9. 监听批量导入完成事件 (实现追加模式下的即时显示)
+            window.addEventListener('batch-cards-imported', (e) => {
+                const { cards, category } = e.detail;
+                if (!cards || cards.length === 0) return;
+
+                // 判断当前视图是否应该显示这些卡片
+                // 逻辑：如果当前就在该分类，或者在根目录且开启了递归
+                const currentViewCat = this.$store.global.viewState.filterCategory;
+                const isRecursive = this.$store.global.viewState.recursiveFilter;
+                
+                // 简单的可见性检查
+                let shouldShow = false;
+                if (currentViewCat === '') {
+                    // 根目录视图
+                    shouldShow = (category === '') || isRecursive; 
+                } else {
+                    // 子目录视图
+                    shouldShow = (category === currentViewCat);
+                }
+
+                if (shouldShow) {
+                    cards.forEach(card => {
+                        // 检查是否已存在 (避免重复)
+                        const exists = this.cards.some(c => c.id === card.id);
+                        if (!exists) {
+                            this.insertCardSorted(card);
+                            this.totalItems++;
+                        } else {
+                            // 如果已存在 (覆盖模式)，更新数据
+                            const idx = this.cards.findIndex(c => c.id === card.id);
+                            if (idx !== -1) {
+                                this.cards[idx] = card;
+                            }
+                        }
+                        
+                        // 更新 Tag 池
+                        if (card.tags) {
+                            card.tags.forEach(t => {
+                                if (!this.$store.global.allTagsPool.includes(t)) {
+                                    this.$store.global.allTagsPool.push(t);
+                                }
+                            });
+                        }
+                    });
+                }
+            });
+
             // 监听 URL 导入的新卡片
             window.addEventListener('card-imported', (e) => {
                 const newCard = e.detail;
@@ -534,54 +581,30 @@ export default function cardGrid() {
             formData.append('category', targetCategory);
             this.$store.global.isLoading = true;
 
-            uploadCards(formData)
-                .then(res => {
-                    this.$store.global.isLoading = false;
-                    if (res.success) {
-                        if (res.category_counts) this.$store.global.categoryCounts = res.category_counts;
-
-                        if (res.new_cards && res.new_cards.length > 0) {
-                            res.new_cards.forEach(card => {
-                                let shouldShow = false;
-                                if (this.filterCategory === '') {
-                                    shouldShow = this.recursiveFilter || card.category === '';
-                                } else {
-                                    shouldShow = card.category === this.filterCategory ||
-                                        (this.recursiveFilter && card.category.startsWith(this.filterCategory + '/'));
-                                }
-
-                                if (shouldShow) {
-                                    this.insertCardSorted(card);
-                                    this.totalItems++;
-                                }
-
-                                if (card.tags) {
-                                    card.tags.forEach(t => {
-                                        if (!this.$store.global.allTagsPool.includes(t)) {
-                                            this.$store.global.allTagsPool.push(t);
-                                        }
-                                    });
-                                }
-                            });
+            fetch('/api/upload/stage', {
+                method: 'POST',
+                body: formData
+            })
+            .then(res => res.json())
+            .then(res => {
+                this.$store.global.isLoading = false;
+                if (res.success) {
+                    // 打开批量导入确认弹窗
+                    window.dispatchEvent(new CustomEvent('open-batch-import-modal', {
+                        detail: {
+                            batchId: res.batch_id,
+                            report: res.report,
+                            category: targetCategory
                         }
-
-                        let msg = "";
-                        if (res.new_cards && res.new_cards.length > 0) {
-                            msg += `成功导入 ${res.new_cards.length} 张卡片。\n`;
-                        }
-                        if (res.failed_files && res.failed_files.length > 0) {
-                            msg += `\n⚠️ 跳过 ${res.failed_files.length} 个无效文件:\n` + res.failed_files.join('\n');
-                        }
-                        if (msg) alert(msg);
-
-                    } else {
-                        alert("上传失败: " + res.msg);
-                    }
-                })
-                .catch(err => {
-                    this.$store.global.isLoading = false;
-                    alert("网络错误: " + err);
-                });
+                    }));
+                } else {
+                    alert("准备导入失败: " + res.msg);
+                }
+            })
+            .catch(err => {
+                this.$store.global.isLoading = false;
+                alert("上传网络错误: " + err);
+            });
         },
 
         insertCardSorted(newCard) {
