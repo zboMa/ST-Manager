@@ -114,13 +114,13 @@ export default function cardGrid() {
                     idx = this.cards.findIndex(c => c.is_bundle && c.bundle_dir === updatedCard.bundle_dir);
                 }
 
+                // 移除后重新排序插入
                 if (idx !== -1) {
-                    // 原地替换
-                    this.cards[idx] = updatedCard;
-                } else {
-                    // 如果完全没找到（可能是新增），插入开头
-                    this.cards.unshift(updatedCard);
+                    // 移除旧对象
+                    this.cards.splice(idx, 1);
                 }
+
+                this.insertCardSorted(updatedCard);
             });
 
             // 9. 监听批量导入完成事件 (实现追加模式下的即时显示)

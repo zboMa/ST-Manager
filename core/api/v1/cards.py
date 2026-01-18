@@ -1070,7 +1070,7 @@ def api_import_from_url():
             "character_book": data_block.get('character_book', None),
             "extensions": data_block.get('extensions', {}),
             "ui_summary": "",
-            "source_link": url,
+            "source_link": "",
             "is_favorite": False,
             "token_count": calculate_token_count(data_block),
             "file_size": final_size,
