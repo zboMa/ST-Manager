@@ -34,7 +34,11 @@ docker run -d \
 > **⚠️ 重要提示 (Windows 用户)**: 在执行命令前，请务必先在当前文件夹下手动创建一个 `config.json` 文件（即使是空的）。如果宿主机上不存在该文件，Docker 会默认将其创建一个**同名文件夹**，导致程序因路径冲突而启动失败。
 
 ### 3. 使用 Docker Compose (推荐)
-对于更稳定的管理，推荐使用 `docker-compose.yml`。在项目目录创建该文件并填入：
+对于更稳定的管理，推荐使用 `docker-compose.yml`。新的配置采用了**命名卷 (Named Volumes)**，它可以确保：
+*   **零配置启动**：宿主机无需预先准备 `config.json` 或 `data` 文件夹，直接启动即可运行。
+*   **数据持久化**：即使删除容器，您的数据仍保留在 Docker 管理的卷中。
+
+在项目目录创建 `docker-compose.yml` 并填入：
 
 ```yaml
 version: '3.8'
@@ -43,20 +47,25 @@ services:
     image: ggssst/st-manager:latest
     container_name: st-manager
     ports:
-      - "5000:5000"  # 格式为 宿主机端口:容器端口
+      - "5000:5000"
     volumes:
-      - ./data:/app/data           # 数据目录挂载
-      - ./config.json:/app/config.json  # 配置文件挂载
+      - st-manager-data:/app/data
     environment:
       - HOST=0.0.0.0
       - PORT=5000
     restart: unless-stopped
+
+volumes:
+  st-manager-data:
 ```
 
 **操作指南：**
 *   **启动服务**：`docker-compose up -d`
 *   **停止服务**：`docker-compose down`
 *   **查看运行日志**：`docker logs -f st-manager`
+
+**进阶配置 (可选)**：
+如果您想手动修改配置文件，可以先运行一次程序，然后将容器内的配置文件拷贝出来进行修改并重新挂载。
 
 ### 4. 目录说明
 *   `/app/data`: 包含所有角色卡、世界书、缩略图等持久化数据。
@@ -68,6 +77,12 @@ services:
 *   **浏览器自动打开**: 在 Docker 环境下，程序不会尝试打开宿主机浏览器，需手动输入地址访问。
 
 ## 📝 更新日志
+
+### V1.1 (2026-01-18)
+*   **🔒 安全与易用性优化**
+    *   移除了不安全的 Discord 脚本自动复制功能。
+    *   新增详细的 Discord Token 手动获取教程及安全注意事项。
+    *   优化了设置界面的交互细节。
 
 ### v1.1 (2024-05-22) - 资源同步与自动化增强
 *   **✨ 新增：卡片更新检测系统**

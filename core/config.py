@@ -28,8 +28,27 @@ TRASH_FOLDER = os.path.join(SYSTEM_DIR, 'trash')
 # 确保核心系统目录存在
 for d in [DATA_DIR, SYSTEM_DIR, DB_FOLDER, THUMB_FOLDER, TRASH_FOLDER]:
     if not os.path.exists(d):
-        try: os.makedirs(d)
-        except: pass
+        try: 
+            os.makedirs(d)
+        except: 
+            pass
+
+def ensure_config_dirs(cfg):
+    """确保配置中指定的业务目录存在"""
+    dirs_to_check = [
+        cfg.get("cards_dir"),
+        cfg.get("world_info_dir"),
+        cfg.get("resources_dir")
+    ]
+    for d in dirs_to_check:
+        if d:
+            # 如果是相对路径，则相对于 BASE_DIR
+            full_path = os.path.isabs(d) and d or os.path.join(BASE_DIR, d)
+            if not os.path.exists(full_path):
+                try:
+                    os.makedirs(full_path, exist_ok=True)
+                except Exception as e:
+                    print(f"Failed to create directory {full_path}: {e}")
 
 # 默认配置
 DEFAULT_CONFIG = {
@@ -91,6 +110,9 @@ def load_config():
         except:
             pass
             
+    # 确保业务目录存在
+    ensure_config_dirs(cfg)
+    
     return cfg
 
 def save_config(cfg):

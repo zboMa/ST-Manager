@@ -301,26 +301,37 @@
                                     class="form-input flex-1" placeholder="MTIzNDU2... (Bot 或 User Token)">
                                 <button @click="showDiscordHelper = true" 
                                     class="px-3 bg-[#5865F2] hover:bg-[#4752C4] text-white rounded transition flex items-center gap-1"
-                                    title="一键同步 Token">
-                                    🪄 <span class="text-xs">同步</span>
+                                    title="获取 Token 教程">
+                                    ❓ <span class="text-xs">同步</span>
                                 </button>
                             </div>
                             <!-- 魔法提示框 -->
                             <div x-show="showDiscordHelper" class="mt-3 p-3 bg-black/40 border border-[#5865F2]/50 rounded text-xs leading-relaxed" x-transition>
                                 <div class="font-bold text-[#5865F2] mb-1 flex justify-between">
-                                    <span>🪄 Discord 智能同步助手</span>
+                                    <span>❓ 如何获取 Discord Token</span>
                                     <button @click="showDiscordHelper = false" class="text-gray-500 hover:text-white">✕</button>
                                 </div>
-                                <ol class="list-decimal list-inside space-y-1 text-[var(--text-dim)]">
-                                    <li>在浏览器中打开 <a href="https://discord.com/app" target="_blank" class="text-accent underline">Discord 网页版</a> 并登录。</li>
-                                    <li>在 Discord 页面按下 <kbd class="px-1 bg-gray-700 rounded">F12</kbd> (或 Ctrl+Shift+I) 打开控制台。</li>
-                                    <li>如果控制台提示“请勿粘贴”，请先手动输入 <code class="text-white px-1 bg-blue-600 rounded">allow pasting</code> (或“允许粘贴”) 并回车。</li>
-                                    <li>点击 <b>Console</b> 标签，粘贴下面的代码并回车：</li>
-                                </ol>
-                                <div class="mt-2 p-2 bg-black/60 rounded font-mono text-[10px] break-all relative group cursor-pointer" 
-                                     @click="copyDiscordScript($event)" title="点击复制">
-                                    <pre class="whitespace-pre-wrap">(async()=>{try{let t;const getT=()=>{try{const wp=window.webpackChunkdiscord_app;if(!wp)return null;let m=[];wp.push([[''],{},e=>{for(const c in e.c)m.push(e.c[c])}]);return m.find(x=>x?.exports?.default?.getToken!==undefined)?.exports?.default?.getToken()}catch(e){return null}};t=getT();if(!t){try{t=(window.localStorage.getItem('token')||'').replace(/"/g,'')}catch(e){}}if(!t)throw"未找到Token: 请确保在Discord主界面并在控制台输入过'允许粘贴'";try{const r=await fetch('${window.location.origin}/api/save_discord_token',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:t})});const d=await r.json();alert(d.success?'✅ Token 同步成功！':'❌ 失败:'+d.msg)}catch(err){console.error(err);prompt('⚠️ 自动同步受浏览器安全限制(HTTPS/HTTP跨域)被拦截。\n\n请手动复制下方的 Token 并粘贴到 ST-Manager 设置中：',t)}}catch(e){alert('❌ '+e)}})()</pre>
-                                    <div class="absolute inset-0 bg-blue-500/10 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-blue-300 font-bold">点击复制脚本</div>
+                                <div class="space-y-3">
+                                    <ol class="list-decimal list-inside space-y-1.5 text-[var(--text-dim)]">
+                                        <li>在浏览器中打开 <a href="https://discord.com/app" target="_blank" class="text-accent underline">Discord 网页版</a> 并登录。</li>
+                                        <li>按下 <kbd class="px-1 bg-gray-700 rounded">F12</kbd> 打开开发者工具，切换到 <b>Network (网络)</b> 标签。</li>
+                                        <li>在 Discord 中随便点击一个频道或发送一条消息，触发网络活动。</li>
+                                        <li>在左侧列表中找到名为 <code class="text-white bg-gray-700 px-1 rounded">science</code> 或 <code class="text-white bg-gray-700 px-1 rounded">messages</code> 的请求。</li>
+                                        <li>点击该请求，在右侧 <b>Headers</b> 栏下找到 <code class="text-white bg-gray-700 px-1 rounded">authorization</code>。</li>
+                                        <li>复制那一串长字符串（不包含 "Bearer " 部分，如果有的话）并粘贴到上方输入框。</li>
+                                    </ol>
+                                    
+                                    <div class="p-2.5 bg-yellow-500/10 border border-yellow-500/30 rounded">
+                                        <div class="text-yellow-500 font-bold text-[11px] mb-1 uppercase flex items-center gap-1">
+                                            ⚠️ 密钥使用安全注意事项
+                                        </div>
+                                        <ul class="list-disc list-inside text-[10px] text-yellow-200/70 space-y-1 leading-normal">
+                                            <li><b>严格保密：</b>Token 相当于你的临时密码，获得它的人可以完全控制你的账号。</li>
+                                            <li><b>禁止分享：</b>绝对不要将此 Token 发送给任何人或截图发布到公共平台。</li>
+                                            <li><b>定期更新：</b>如果你怀疑 Token 泄露，请立即修改 Discord 密码，所有旧 Token 将失效。</li>
+                                            <li><b>本地存储：</b>ST Manager 仅将其保存在本地 <code class="bg-black/30 px-1">config.json</code> 中，不会上传至任何第三方服务器。</li>
+                                        </ul>
+                                    </div>
                                 </div>
                             </div>
                             <div class="text-[10px] text-gray-500 mt-1 italic">
