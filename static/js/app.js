@@ -25,7 +25,8 @@ import importModal from './components/importModal.js';
 import contextMenu from './components/contextMenu.js';
 import folderOperations from './components/folderOperations.js';
 import wiDetailPopup from './components/wiDetailPopup.js';
-import resourceManager from './components/resourceManager.js';
+import batchImportModal from './components/batchImportModal.js';
+import automationModal from './components/automationModal.js';
 
 // 3. 监听 Alpine 初始化事件
 const registerComponents = () => {
@@ -52,7 +53,8 @@ const registerComponents = () => {
     Alpine.data('contextMenu', contextMenu);
     Alpine.data('folderOperations', folderOperations);
     Alpine.data('wiDetailPopup', wiDetailPopup);
-    Alpine.data('resourceManager', resourceManager);
+    Alpine.data('batchImportModal', batchImportModal);
+    Alpine.data('automationModal', automationModal);
 
     console.log("✅ ST Manager Frontend: Modules Loaded & Alpine Initialized");
 };
