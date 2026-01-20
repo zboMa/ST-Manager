@@ -324,7 +324,7 @@ html.light-mode .btn-note-preview:hover {
         height: 12rem;
     }
     .card-grid {
-        grid-template-columns: repeat(auto-fill, minmax(150, 1fr));
+        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
     }
     .card-image-container {
         height: 10rem;
