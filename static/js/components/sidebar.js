@@ -17,20 +17,20 @@ export default function sidebar() {
         get deviceType() {
             return this.$store.global.deviceType;
         },
-    
+
         get currentMode() {
             return this.$store.global.currentMode;
         },
-    
+
         get visibleSidebar() {
             return this.$store.global.visibleSidebar;
         },
-    
+
         set visibleSidebar(val) {
             this.$store.global.visibleSidebar = val;
             return true;
         },
-        
+
         get filterCategory() { return this.$store.global.viewState.filterCategory; },
         set filterCategory(val) { this.$store.global.viewState.filterCategory = val; return true; },
 
@@ -58,12 +58,12 @@ export default function sidebar() {
             const list = this.$store.global.allFoldersList || [];
             return list.map(folder => {
                 let isVisible = true;
-                
+
                 // 计算可见性 (父级是否展开)
                 if (folder.level > 0) {
                     let parts = folder.path.split('/');
                     let currentPath = '';
-                    
+
                     for (let i = 0; i < parts.length - 1; i++) {
                         currentPath = i === 0 ? parts[i] : `${currentPath}/${parts[i]}`;
                         if (!this.expandedFolders[currentPath]) {
@@ -72,7 +72,7 @@ export default function sidebar() {
                         }
                     }
                 }
-                
+
                 return {
                     ...folder,
                     visible: isVisible,
@@ -108,10 +108,10 @@ export default function sidebar() {
                     const activeElements = document.querySelectorAll('.sidebar .folder-item.active');
                     if (activeElements.length > 0) {
                         const targetEl = activeElements[activeElements.length - 1];
-                        
+
                         // 使用 scrollIntoView 将其滚动到中间
-                        targetEl.scrollIntoView({ 
-                            behavior: 'smooth', 
+                        targetEl.scrollIntoView({
+                            behavior: 'smooth',
                             block: 'center',
                             inline: 'nearest'
                         });
@@ -123,8 +123,8 @@ export default function sidebar() {
                 this.$store.global.visibleSidebar = false;
             }
         },
-      
-          // 切换侧边栏可见性
+
+        // 切换侧边栏可见性
         toggleSidebarVisible() {
             this.$store.global.visibleSidebar = !this.$store.global.visibleSidebar;
             // 移动端打开侧边栏时，阻止 body 滚动
@@ -153,7 +153,7 @@ export default function sidebar() {
             // 更新父级 layout 的状态
             this.filterCategory = category;
             this.selectedIds = []; // 清空选中
-            
+
             // 触发 Grid 刷新
             window.dispatchEvent(new CustomEvent('reset-scroll'));
         },
@@ -189,12 +189,12 @@ export default function sidebar() {
 
         // === 文件夹 CRUD (通常由模态框回调触发，这里提供逻辑) ===
         // 注意：HTML 中通常调用 $store.global.showCreateFolder = true
-        
+
         createFolder() {
             // 这个函数绑定在模态框的确认按钮上
             const name = this.$store.global.newFolderName;
             const parent = this.$store.global.newFolderParent;
-            
+
             createFolder({ name, parent }).then(res => {
                 if (res.success) {
                     // 刷新文件夹列表
@@ -212,15 +212,15 @@ export default function sidebar() {
         folderDragStart(e, folder) {
             // 更新 layout 中的拖拽状态
             this.draggedFolder = folder.path;
-            
+
             e.dataTransfer.effectAllowed = 'move';
             e.dataTransfer.setData('application/x-st-folder', folder.path);
 
             const el = e.currentTarget;
-            
+
             // 样式
             el.classList.add('drag-source');
-            
+
             const handleDragEnd = () => {
                 window.dispatchEvent(new CustomEvent('global-drag-end'));
                 el.classList.remove('drag-source');
@@ -232,7 +232,7 @@ export default function sidebar() {
         folderDragOver(e, folder) {
             e.preventDefault();
             e.stopPropagation();
-            
+
             // 如果正在拖拽卡片，则高亮当前文件夹 (除非是当前所在目录)
             if (this.draggedCards.length > 0) {
                 if (folder.path !== this.filterCategory) {
@@ -243,7 +243,7 @@ export default function sidebar() {
 
             // 文件夹拖拽检查：不能拖到自己或子目录
             if (this.draggedFolder) {
-                if (folder.path === this.draggedFolder || 
+                if (folder.path === this.draggedFolder ||
                     folder.path.startsWith(this.draggedFolder + '/') ||
                     this.draggedFolder.startsWith(folder.path + '/')) {
                     return;
@@ -262,13 +262,13 @@ export default function sidebar() {
         folderDrop(e, targetFolder) {
             e.preventDefault();
             e.stopPropagation();
-            
+
             // 清理视觉
             document.querySelectorAll('.drag-source').forEach(el => el.classList.remove('drag-source'));
             this.dragOverCat = null;
             this.dragOverMain = false;
             this.dragOverFolder = null;
-            
+
             // 1. 文件夹 -> 文件夹
             if (this.draggedFolder && targetFolder) {
                 if (this.draggedFolder === targetFolder.path) return;
@@ -279,8 +279,8 @@ export default function sidebar() {
                         target_parent_path: targetFolder.path,
                         merge_if_exists: false
                     }).then(res => {
-                         if (res.success) window.dispatchEvent(new CustomEvent('refresh-folder-list'));
-                         else alert(res.msg);
+                        if (res.success) window.dispatchEvent(new CustomEvent('refresh-folder-list'));
+                        else alert(res.msg);
                     });
                 }
             }
@@ -288,15 +288,15 @@ export default function sidebar() {
             else if (this.draggedCards.length > 0 && targetFolder) {
                 const targetName = targetFolder.name;
                 const count = this.draggedCards.length;
-                
+
                 if (confirm(`移动 ${count} 张卡片到 "${targetName}"?`)) {
                     moveCard({
                         card_ids: this.draggedCards,
                         target_category: targetFolder.path
                     }).then(res => {
-                        if(res.success) {
+                        if (res.success) {
                             // 更新计数
-                            if(res.category_counts) this.$store.global.categoryCounts = res.category_counts;
+                            if (res.category_counts) this.$store.global.categoryCounts = res.category_counts;
                             window.dispatchEvent(new CustomEvent('refresh-card-list'));
                         } else alert(res.msg);
                     });
@@ -304,8 +304,8 @@ export default function sidebar() {
             }
             // 3. 外部文件 -> 文件夹
             else if (e.dataTransfer.files.length > 0 && targetFolder) {
-                window.dispatchEvent(new CustomEvent('handle-files-drop', { 
-                    detail: { event: e, category: targetFolder.path } 
+                window.dispatchEvent(new CustomEvent('handle-files-drop', {
+                    detail: { event: e, category: targetFolder.path }
                 }));
             }
 
@@ -325,7 +325,7 @@ export default function sidebar() {
             }
 
             this.filterTags = tags; // 触发更新
-            
+
             // 刷新 Grid
             window.dispatchEvent(new CustomEvent('reset-scroll'));
         },
@@ -337,12 +337,59 @@ export default function sidebar() {
         },
 
         migrateLorebooks() {
-            if(!confirm("这将扫描所有角色资源目录，并将散乱的 JSON 世界书移动到 'lorebooks' 子文件夹中。\n是否继续？")) return;
-            
+            if (!confirm("这将扫描所有角色资源目录，并将散乱的 JSON 世界书移动到 'lorebooks' 子文件夹中。\n是否继续？")) return;
+
             migrateLorebooks().then(res => {
                 alert(`整理完成，共移动了 ${res.count} 个文件。`);
                 window.dispatchEvent(new CustomEvent('refresh-wi-list'));
             });
+        },
+
+        /**
+         * 移动端悬浮导入按钮：文件选择完成回调
+         * - 在角色卡模式下：复用 cardGrid 的拖拽上传逻辑 (window.stUploadCardFiles)
+         * - 在世界书模式下：复用 wiGrid 的拖拽上传逻辑 (window.stUploadWorldInfoFiles)
+         */
+        handleMobileImportChange(e) {
+            const input = e.target;
+            const files = input.files;
+
+            if (!files || files.length === 0) {
+                input.value = '';
+                return;
+            }
+
+            const mode = this.currentMode; // 'cards' | 'worldinfo'
+
+            // === 1. 角色卡上传 ===
+            if (mode === 'cards') {
+                if (window.stUploadCardFiles) {
+                    // 直接复用 cardGrid 的内部上传逻辑（带有批量导入弹窗等）
+                    window.stUploadCardFiles(files, null);
+                } else {
+                    alert('卡片网格尚未准备好，稍后再试一次。');
+                }
+
+                input.value = '';
+                return;
+            }
+
+            // === 2. 世界书上传 ===
+            if (mode === 'worldinfo') {
+                if (window.stUploadWorldInfoFiles) {
+                    // 直接复用 wiGrid 的内部上传逻辑（与拖拽上传完全一致）
+                    window.stUploadWorldInfoFiles(files);
+                } else {
+                    alert('世界书网格尚未准备好，稍后再试一次。');
+                }
+
+                input.value = '';
+                return;
+            }
+
+            // 其他模式兜底
+            alert('当前模式不支持导入操作。');
+            input.value = '';
         }
     }
 }

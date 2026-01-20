@@ -20,7 +20,7 @@ export default function wiGrid() {
         set wiSearchQuery(val) { this.$store.global.wiSearchQuery = val; },
         get wiFilterType() { return this.$store.global.wiFilterType; },
         set wiFilterType(val) { this.$store.global.wiFilterType = val; },
-        
+
         // 拖拽状态
         dragOverWi: false,
 
@@ -30,32 +30,38 @@ export default function wiGrid() {
                 this.wiCurrentPage = 1;
                 this.fetchWorldInfoList();
             });
-            
+
             this.$watch('$store.global.wiFilterType', () => {
                 this.wiCurrentPage = 1;
                 this.fetchWorldInfoList();
             });
-            
+
             // 监听刷新事件
             window.addEventListener('refresh-wi-list', (e) => {
                 if (e.detail && e.detail.resetPage) this.wiCurrentPage = 1;
                 this.fetchWorldInfoList();
             });
-            
+
             // 监听搜索框输入
             window.addEventListener('wi-search-changed', (e) => {
                 this.wiSearchQuery = e.detail;
                 this.wiCurrentPage = 1;
                 this.fetchWorldInfoList();
             });
+
+            // 提供给外部（例如侧边栏导入按钮）复用的全局上传入口
+            window.stUploadWorldInfoFiles = (files) => {
+                // 使用当前 wiGrid 实例来处理上传，保证行为与拖拽一致
+                this._uploadWorldInfoInternal(files);
+            };
         },
 
         // === 数据加载 ===
         fetchWorldInfoList() {
             if (Alpine.store('global').serverStatus.status !== 'ready') return;
-            
+
             Alpine.store('global').isLoading = true;
-            
+
             const pageSize = Alpine.store('global').settingsForm.items_per_page_wi || 20;
 
             const params = {
@@ -71,7 +77,7 @@ export default function wiGrid() {
                     if (res.success) {
                         // 更新 Store 中的列表
                         this.wiList = res.items;
-                        
+
                         this.wiTotalItems = res.total || 0;
                         this.wiTotalPages = Math.ceil(this.wiTotalItems / pageSize) || 1;
                     }
@@ -83,7 +89,7 @@ export default function wiGrid() {
             if (p >= 1 && p <= this.wiTotalPages) {
                 this.wiCurrentPage = p;
                 const el = document.getElementById('wi-scroll-area');
-                if(el) el.scrollTop = 0;
+                if (el) el.scrollTop = 0;
                 this.fetchWorldInfoList();
             }
         },
@@ -106,7 +112,7 @@ export default function wiGrid() {
         enterWiEditorFromDetail(item) {
             // 1. 关闭详情弹窗
             window.dispatchEvent(new CustomEvent('close-wi-detail-modal'));
-            
+
             // 2. 打开全屏编辑器
             // 使用 setTimeout 确保弹窗关闭动画不冲突（可选）
             setTimeout(() => {
@@ -120,14 +126,14 @@ export default function wiGrid() {
         },
 
         // === 文件上传 ===
-        handleWiFilesDrop(e) {
-            this.dragOverWi = false;
-            const files = e.dataTransfer.files;
+
+        // 核心世界书上传逻辑封装，供拖拽和按钮导入复用
+        _uploadWorldInfoInternal(files) {
             if (!files || files.length === 0) return;
 
             const formData = new FormData();
             let hasJson = false;
-            
+
             for (let i = 0; i < files.length; i++) {
                 if (files[i].name.toLowerCase().endsWith('.json')) {
                     formData.append('files', files[i]);
@@ -135,7 +141,10 @@ export default function wiGrid() {
                 }
             }
 
-            if (!hasJson) return alert("请拖拽 .json 格式的世界书文件");
+            if (!hasJson) {
+                alert("请选择 .json 格式的世界书文件");
+                return;
+            }
 
             this.$store.global.isLoading = true;
             uploadWorldInfo(formData)
@@ -146,7 +155,7 @@ export default function wiGrid() {
                         // 如果当前不在 global 视图，提示切换
                         const currentType = this.$store.global.wiFilterType;
                         if (currentType !== 'all' && currentType !== 'global') {
-                            if(confirm("上传成功（已存入全局目录）。是否切换到全局视图查看？")) {
+                            if (confirm("上传成功（已存入全局目录）。是否切换到全局视图查看？")) {
                                 this.$store.global.wiFilterType = 'global';
                                 window.dispatchEvent(new CustomEvent('refresh-wi-list', { detail: { resetPage: true } }));
                             } else {
@@ -163,6 +172,12 @@ export default function wiGrid() {
                     this.$store.global.isLoading = false;
                     alert("网络错误: " + err);
                 });
+        },
+
+        handleWiFilesDrop(e) {
+            this.dragOverWi = false;
+            const files = e.dataTransfer.files;
+            this._uploadWorldInfoInternal(files);
         }
     }
 }

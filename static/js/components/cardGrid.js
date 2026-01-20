@@ -134,7 +134,7 @@ export default function cardGrid() {
                 // 逐张卡片判断可见性，因为自动化规则可能把它们分散到了不同目录
                 cards.forEach(card => {
                     let shouldShow = false;
-                    
+
                     // 1. 如果当前在根目录视图
                     if (currentViewCat === '') {
                         if (isRecursive) {
@@ -142,7 +142,7 @@ export default function cardGrid() {
                         } else {
                             shouldShow = (card.category === ''); // 非递归，只显示根目录卡片
                         }
-                    } 
+                    }
                     // 2. 如果当前在子目录视图
                     else {
                         if (card.category === currentViewCat) {
@@ -189,6 +189,12 @@ export default function cardGrid() {
                 const tagsToRemove = e.detail.tags;
                 this.handleBatchRemoveTagsFromView(tagsToRemove);
             });
+
+            // 提供给外部（例如侧边栏导入按钮）复用的全局上传入口
+            window.stUploadCardFiles = (files, targetCategory = null) => {
+                // 使用当前 cardGrid 实例来处理上传，保证行为与拖拽一致
+                this._uploadFilesInternal(files, targetCategory);
+            };
         },
 
         // 统一处理增量更新 (插入/排序/去重)
@@ -510,72 +516,34 @@ export default function cardGrid() {
             }
         },
 
-        dropCards(targetCat) {
-            this.dragCounter = 0;
-            this.dragOverMain = false;
-            if (this.draggedCards.length === 0) return;
-
-            const targetCatName = targetCat || '根目录';
-            if (!confirm(`移动 ${this.draggedCards.length} 张卡片到 "${targetCatName}"?`)) {
-                this.draggedCards = [];
-                return;
-            }
-            this.moveCardsToCategory(targetCat);
-        },
-
-        moveCardsToCategory(targetCategory) {
-            const movingIds = [...this.draggedCards];
-            document.body.style.cursor = 'wait';
-
-            moveCard({
-                card_ids: movingIds,
-                target_category: targetCategory === '根目录' ? '' : targetCategory
-            })
-                .then(res => {
-                    document.body.style.cursor = 'default';
-                    if (res.success) {
-                        if (res.category_counts) this.$store.global.categoryCounts = res.category_counts;
-                        this.fetchCards();
-                        this.selectedIds = [];
-                        this.draggedCards = [];
-                    } else {
-                        alert("移动失败: " + res.msg);
-                    }
-                })
-                .catch(err => {
-                    document.body.style.cursor = 'default';
-                    alert("网络请求错误" + err);
-                });
-        },
-
-        // === 文件上传 (外部拖拽) ===
-        handleFilesDrop(e, targetCategory) {
-            this.dragCounter = 0;
-            this.dragOverMain = false;
-            if (e.dataTransfer.types.includes('application/x-st-card')) return;
-
-            const files = e.dataTransfer.files;
+        // 核心文件上传逻辑封装，供拖拽和按钮导入复用
+        _uploadFilesInternal(files, targetCategory) {
             if (!files || files.length === 0) return;
 
             const formData = new FormData();
             let hasFiles = false;
             for (let i = 0; i < files.length; i++) {
-                const name = files[i].name.toLowerCase();
-                if (files[i].type.startsWith('image/') || name.endsWith('.png') || name.endsWith('.json')) {
-                    formData.append('files', files[i]);
+                const file = files[i];
+                const name = file.name.toLowerCase();
+                if (file.type.startsWith('image/') || name.endsWith('.png') || name.endsWith('.json')) {
+                    formData.append('files', file);
                     hasFiles = true;
                 }
             }
 
             if (!hasFiles) return;
 
+            const store = this.$store.global;
+
+            // 如果未显式传入分类，则使用当前视图分类
             if (targetCategory === null || targetCategory === undefined) {
-                targetCategory = (this.filterCategory === '' || this.filterCategory === '根目录') ? '' : this.filterCategory;
+                const currentCat = store.viewState.filterCategory || '';
+                targetCategory = (currentCat === '' || currentCat === '根目录') ? '' : currentCat;
             }
             if (targetCategory === '根目录') targetCategory = '';
 
             formData.append('category', targetCategory);
-            this.$store.global.isLoading = true;
+            store.isLoading = true;
 
             fetch('/api/upload/stage', {
                 method: 'POST',
@@ -583,6 +551,7 @@ export default function cardGrid() {
             })
                 .then(res => res.json())
                 .then(res => {
+                    store.isLoading = false;
                     if (res.success) {
                         // 分离有效项和错误项
                         const errors = res.report.filter(item => item.status === 'error');
@@ -595,8 +564,7 @@ export default function cardGrid() {
                         // 如果没有有效文件了，终止流程
                         if (validReport.length === 0) {
                             return; // 不打开确认框
-                        }
-                        // === 单文件无冲突静默导入逻辑 ===
+                        }// === 单文件无冲突静默导入逻辑 ===
                         // 条件：只有 1 个有效文件，没有报错，且该文件状态不是 conflict
                         if (validReport.length === 1 && errors.length === 0 && validReport[0].status === 'ok') {
                             const item = validReport[0];
@@ -657,9 +625,57 @@ export default function cardGrid() {
                     }
                 })
                 .catch(err => {
-                    this.$store.global.isLoading = false;
+                    store.isLoading = false;
                     alert("上传网络错误: " + err);
                 });
+        },
+
+        dropCards(targetCat) {
+            this.dragCounter = 0;
+            this.dragOverMain = false;
+            if (this.draggedCards.length === 0) return;
+
+            const targetCatName = targetCat || '根目录';
+            if (!confirm(`移动 ${this.draggedCards.length} 张卡片到 "${targetCatName}"?`)) {
+                this.draggedCards = [];
+                return;
+            }
+            this.moveCardsToCategory(targetCat);
+        },
+
+        moveCardsToCategory(targetCategory) {
+            const movingIds = [...this.draggedCards];
+            document.body.style.cursor = 'wait';
+
+            moveCard({
+                card_ids: movingIds,
+                target_category: targetCategory === '根目录' ? '' : targetCategory
+            })
+                .then(res => {
+                    document.body.style.cursor = 'default';
+                    if (res.success) {
+                        if (res.category_counts) this.$store.global.categoryCounts = res.category_counts;
+                        this.fetchCards();
+                        this.selectedIds = [];
+                        this.draggedCards = [];
+                    } else {
+                        alert("移动失败: " + res.msg);
+                    }
+                })
+                .catch(err => {
+                    document.body.style.cursor = 'default';
+                    alert("网络请求错误" + err);
+                });
+        },
+
+        // === 文件上传 (外部拖拽) ===
+        handleFilesDrop(e, targetCategory) {
+            this.dragCounter = 0;
+            this.dragOverMain = false;
+            if (e.dataTransfer.types.includes('application/x-st-card')) return;
+
+            const files = e.dataTransfer.files;
+            this._uploadFilesInternal(files, targetCategory);
         },
 
         insertCardSorted(newCard) {
