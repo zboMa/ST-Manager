@@ -82,11 +82,11 @@
     <div class="pagination-bar" x-show="wiList.length > 0 || wiCurrentPage > 1" style="flex-shrink: 0;">
         <span style="font-size: 0.75rem; color: var(--text-dim);">共 <span x-text="wiTotalItems"></span>
             本</span>
-        <div style="display: flex; gap: 0.5rem;">
+        <div style="display: flex; align-items: center; gap:  0.5rem;">
             <button @click="changeWiPage(wiCurrentPage-1)" :disabled="wiCurrentPage===1" class="btn-secondary"
                 style="padding: 0.25rem 0.5rem;">上一页</button>
             <span
-                style="padding: 0.25rem 0.5rem; background: var(--bg-sub); border-radius: 0.25rem; color: var(--text-main); font-size: 0.75rem;"
+                style="padding: 0.25rem 0.5rem; background: var(--bg-sub); border-radius: 0.25rem; color: var(--text-main); font-size: 0.75rem; height: 100%;"
                 x-text="wiCurrentPage + '/' + wiTotalPages"></span>
             <button @click="changeWiPage(wiCurrentPage+1)" :disabled="wiCurrentPage===wiTotalPages"
                 class="btn-secondary" style="padding: 0.25rem 0.5rem;">下一页</button>
