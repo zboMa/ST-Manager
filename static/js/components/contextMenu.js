@@ -55,6 +55,25 @@ export default function contextMenu() {
 
         // === 菜单动作 ===
 
+        // 切换目录排除状态
+        handleExclude() {
+            if (this.type === 'folder' && this.target !== '') {
+                const store = this.$store.global;
+                let list = [...store.viewState.excludedCategories];
+                
+                if (list.includes(this.target)) {
+                    // 取消排除
+                    list = list.filter(t => t !== this.target);
+                } else {
+                    // 添加排除
+                    list.push(this.target);
+                }
+                
+                store.viewState.excludedCategories = list;
+                this.visible = false;
+            }
+        },
+
         // 运行自动化
         handleRunAuto(rulesetId) {
             if (this.target === null || this.target === undefined) return;

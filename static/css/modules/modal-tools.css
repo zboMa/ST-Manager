@@ -42,6 +42,20 @@
     color: var(--text-main); 
     border-color: var(--text-main);
 }
+/* Sidebar Chip Excluded Style */
+.sidebar-tag-chip.excluded {
+    background-color: rgba(220, 38, 38, 0.2) !important; /* Red background */
+    color: #fca5a5 !important; /* Light red text */
+    border-color: #ef4444 !important;
+    text-decoration: line-through; /* 可选：增加删除线增强语义 */
+}
+
+/* Tag Modal Chip Excluded Style */
+.tag-chip-excluded {
+    background-color: #dc2626;
+    color: white;
+    border-color: #ef4444;
+}
 
 /* =========================================
    11. 高级编辑器重构 (Advanced Editor Refactor)

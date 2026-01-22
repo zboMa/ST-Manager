@@ -72,9 +72,32 @@
 
         <!-- 桌面端：筛选标签云 -->
         <div style="display: flex; gap: 0.5rem; overflow-x: auto; margin-left: 1rem; flex: 1;" class="custom-scrollbar">
-            <template x-for="tag in filterTags" :key="tag">
-                <div class="filter-chip hover:scale-105 transition-transform" @click="toggleFilterTag(tag)">
-                    <span x-text="tag"></span><span style="opacity: 0.8;">✕</span>
+            <!-- 排除目录的 Chips -->
+            <template x-for="cat in $store.global.viewState.excludedCategories" :key="cat">
+                <div class="filter-chip hover:scale-105 transition-transform" 
+                     style="background-color: #dc2626; border: 1px solid #ef4444;"
+                     @click="toggleExcludedCategory(cat)"
+                     title="点击取消排除">
+                    <span x-text="'🚫 ' + cat"></span>
+                    <span style="opacity: 0.8; margin-left: 4px;">✕</span>
+                </div>
+            </template>
+            <!-- 包含的标签 (绿色/主题色) -->
+            <template x-for="tag in filterTags" :key="'inc-'+tag">
+                <div class="filter-chip hover:scale-105 transition-transform" 
+                     @click="toggleFilterTag(tag)"
+                     title="点击切换为排除">
+                    <span x-text="tag"></span><span style="opacity: 0.8; margin-left:4px;">✓</span>
+                </div>
+            </template>
+
+            <!-- 排除的标签 (红色) -->
+            <template x-for="tag in $store.global.viewState.excludedTags" :key="'exc-'+tag">
+                <div class="filter-chip hover:scale-105 transition-transform" 
+                     style="background-color: #dc2626; border: 1px solid #ef4444;"
+                     @click="toggleFilterTag(tag)"
+                     title="点击取消筛选">
+                    <span x-text="tag"></span><span style="opacity: 0.8; margin-left:4px;">✕</span>
                 </div>
             </template>
         </div>

@@ -51,6 +51,9 @@ export default function cardGrid() {
             this.$watch('$store.global.viewState.searchType', () => { this.currentPage = 1; this.scheduleFetchCards('type'); });
             this.$watch('$store.global.viewState.filterCategory', () => { this.currentPage = 1; this.fetchCards(); });
             this.$watch('$store.global.viewState.filterTags', () => { this.currentPage = 1; this.fetchCards(); });
+            this.$watch('$store.global.viewState.excludedTags', () => { this.currentPage = 1; this.fetchCards(); });
+            // 监听排除列表变化，触发刷新
+            this.$watch('$store.global.viewState.excludedCategories', () => { this.fetchCards(); });
             this.$watch('$store.global.viewState.recursiveFilter', () => { this.fetchCards(); });
 
             // 监听排序设置变化
@@ -290,6 +293,8 @@ export default function cardGrid() {
                 page_size: pageSize.toString(),
                 category: vs.filterCategory || '',
                 tags: (vs.filterTags || []).join('|||'),
+                excluded_tags: (vs.excludedTags || []).join('|||'),
+                excluded_cats: (vs.excludedCategories || []).join('|||'),
                 search: vs.searchQuery || '',
                 search_type: vs.searchType || 'mix',
                 sort: store.settingsForm.default_sort || 'date_desc',

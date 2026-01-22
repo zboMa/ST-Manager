@@ -93,9 +93,11 @@ def api_list_cards():
     
     category = request.args.get('category', '')
     tags_param = request.args.get('tags', '')
+    excluded_tags_param = request.args.get('excluded_tags', '')
     search = request.args.get('search', '').lower().strip()
     search_type = request.args.get('search_type', 'mix')
     sort_mode = request.args.get('sort', current_config.get('default_sort', 'date_desc'))
+    excluded_cats_param = request.args.get('excluded_cats', '')
     
     # --- 获取是否递归显示的参数 (默认 true) ---
     recursive_str = request.args.get('recursive', 'true')
@@ -108,6 +110,19 @@ def api_list_cards():
     with ctx.cache.lock:
         candidates = list(ctx.cache.cards)
     library_total = len(candidates)
+    
+    # --- 全局目录排除逻辑 ---
+    if excluded_cats_param:
+        ex_list = [e.strip().lower() for e in excluded_cats_param.split('|||') if e.strip()]
+        if ex_list:
+            # 排除条件：分类完全匹配 OR 是其子分类 (以 "name/" 开头)
+            candidates = [
+                c for c in candidates
+                if not any(
+                    c['category'].lower() == ex or c['category'].lower().startswith(ex + '/') 
+                    for ex in ex_list
+                )
+            ]
 
     # 2. 分类过滤 (支持递归子分类)
     # 逻辑：如果选了分类，先缩减范围；如果没选(根目录)，则范围是全部
@@ -172,7 +187,16 @@ def api_list_cards():
                 )
             ]
 
-    # 4. 标签过滤 (继续在结果上过滤，只影响卡片列表，不影响 sidebar_tags)
+    # 4.1. 标签排除
+    if excluded_tags_param:
+        ex_tag_list = [t.strip() for t in excluded_tags_param.split('|||') if t.strip()]
+        if ex_tag_list:
+            candidates = [
+                c for c in candidates 
+                if not any(t in c['tags'] for t in ex_tag_list)
+            ]
+
+    # 4.2. 标签正向过滤
     if tags_param:
         tag_list = [t.strip() for t in tags_param.split('|||') if t.strip()]
         if tag_list:

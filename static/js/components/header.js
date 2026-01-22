@@ -69,6 +69,17 @@ export default function header() {
             });
         },
 
+        // 切换排除目录 (用于 Header 点击 Chip)
+        toggleExcludedCategory(cat) {
+            let list = [...this.$store.global.viewState.excludedCategories];
+            if (list.includes(cat)) {
+                list = list.filter(t => t !== cat);
+            } else {
+                list.push(cat);
+            }
+            this.$store.global.viewState.excludedCategories = list;
+        },
+
         // 更新当前页全选状态
         updateCurrentPageAllSelectedStatus() {
             if (this.currentMode !== 'cards') {
@@ -312,13 +323,31 @@ export default function header() {
 
         // 切换筛选标签
         toggleFilterTag(tag) {
-            const index = this.filterTags.indexOf(tag);
-            if (index > -1) {
-                this.filterTags.splice(index, 1);
+            const store = this.$store.global.viewState;
+            let includeTags = [...store.filterTags];
+            let excludeTags = [...store.excludedTags];
+
+            const inInclude = includeTags.indexOf(tag);
+            const inExclude = excludeTags.indexOf(tag);
+
+            if (inInclude > -1) {
+                // 当前是包含 -> 转为排除
+                includeTags.splice(inInclude, 1);
+                excludeTags.push(tag);
+            } else if (inExclude > -1) {
+                // 当前是排除 -> 转为无
+                excludeTags.splice(inExclude, 1);
             } else {
-                this.filterTags.push(tag);
+                // 当前是无 -> 转为包含
+                includeTags.push(tag);
             }
-            this.fetchCards();
+
+            // 更新状态
+            this.filterTags = includeTags;
+            this.$store.global.viewState.excludedTags = excludeTags;
+            
+            // 触发刷新
+            window.dispatchEvent(new CustomEvent('refresh-card-list'));
         },
 
         // 全选/取消全选（仅针对当前页）

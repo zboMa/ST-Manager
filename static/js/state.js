@@ -104,6 +104,8 @@ export function initState() {
             searchType: 'mix',
             filterCategory: '',
             filterTags: [],
+            excludedTags: [],
+            excludedCategories: [],
             recursiveFilter: true,
             selectedIds: [],
             lastSelectedId: null,

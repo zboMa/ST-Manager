@@ -24,14 +24,21 @@
                 <button @click="isDeleteMode ? toggleTagSelectionForDeletion(tag) : toggleFilterTag(tag)"
                     class="tag-chip-btn flex items-center" :class="{
                             'tag-chip-selected': !isDeleteMode && filterTags.includes(tag),
-                            'tag-chip-unselected': !isDeleteMode && !filterTags.includes(tag),
+                            'tag-chip-excluded': !isDeleteMode && $store.global.viewState.excludedTags.includes(tag),
+                            'tag-chip-unselected': !isDeleteMode && !filterTags.includes(tag) && !$store.global.viewState.excludedTags.includes(tag),
+                            
                             'tag-chip-delete-selected': isDeleteMode && selectedTagsForDeletion.includes(tag),
                             'tag-chip-delete-unselected': isDeleteMode && !selectedTagsForDeletion.includes(tag)
                         }">
+                    
                     <span x-show="isDeleteMode && selectedTagsForDeletion.includes(tag)" class="mr-1 font-bold">✓</span>
                     <span x-text="tag" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"></span>
+                    
+                    <!-- 状态图标 -->
                     <span x-show="!isDeleteMode && filterTags.includes(tag)"
                         style="margin-left: 0.4rem; font-size: 0.75rem;">✓</span>
+                    <span x-show="!isDeleteMode && $store.global.viewState.excludedTags.includes(tag)"
+                        style="margin-left: 0.4rem; font-size: 0.75rem;">✕</span>
                 </button>
             </template>
             <div x-show="filteredTagsPool.length === 0"

@@ -49,17 +49,31 @@ export default function tagFilterModal() {
             });
         },
 
-        toggleFilterTag(t) {
-            // 直接操作 Store 中的 filterTags
-            let tags = [...this.$store.global.viewState.filterTags];
-            if (tags.includes(t)) {
-                tags = tags.filter(x => x !== t);
+        toggleFilterTag(tag) {
+            const store = this.$store.global.viewState;
+            let includeTags = [...store.filterTags];
+            let excludeTags = [...store.excludedTags];
+
+            const inInclude = includeTags.indexOf(tag);
+            const inExclude = excludeTags.indexOf(tag);
+
+            if (inInclude > -1) {
+                // 当前是包含 -> 转为排除
+                includeTags.splice(inInclude, 1);
+                excludeTags.push(tag);
+            } else if (inExclude > -1) {
+                // 当前是排除 -> 转为无
+                excludeTags.splice(inExclude, 1);
             } else {
-                tags.push(t);
+                // 当前是无 -> 转为包含
+                includeTags.push(tag);
             }
-            this.$store.global.viewState.filterTags = tags;
+
+            // 更新状态
+            this.filterTags = includeTags;
+            this.$store.global.viewState.excludedTags = excludeTags;
             
-            // 触发列表刷新 (通知 cardGrid)
+            // 触发刷新 (State 中的 watcher 会自动处理，这里可以不再手动调 fetchCards，或者为了保险保留)
             window.dispatchEvent(new CustomEvent('refresh-card-list'));
         },
 
@@ -83,8 +97,12 @@ export default function tagFilterModal() {
 
         // 从当前视图的卡片中移除选中的标签
         deleteFilterTags() {
-            // 直接读取全局 Store 的 filterTags
-            const tags = this.$store.global.viewState.filterTags;
+            // 合并包含和排除的标签
+            const includeTags = this.$store.global.viewState.filterTags;
+            const excludeTags = this.$store.global.viewState.excludedTags;
+            
+            // 合并并去重
+            const tags = [...new Set([...includeTags, ...excludeTags])];
             
             if (!tags || tags.length === 0) {
                 alert("请先选择要删除的标签");

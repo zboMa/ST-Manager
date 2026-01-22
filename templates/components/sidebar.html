@@ -96,7 +96,10 @@
                 <div class="sidebar-tag-cloud">
                     <template x-for="tag in allTagsPool.slice(0, 30)" :key="tag">
                         <button @click="toggleFilterTag(tag)" class="sidebar-tag-chip"
-                            :class="filterTags.includes(tag) ? 'active' : ''">
+                            :class="{
+                                'active': filterTags.includes(tag),
+                                'excluded': $store.global.viewState.excludedTags.includes(tag)
+                            }">
                             <span x-text="tag"></span>
                         </button>
                     </template>
