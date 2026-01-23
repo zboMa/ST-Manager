@@ -102,8 +102,8 @@
         </div>
         <div style="display: flex; flex-direction: column; overflow: hidden;" :style="tagsSectionExpanded ? 'flex: 1;' : ''">
             <div class="sidebar-section-header">
-                <div class="flex items-center gap-2">
-                    <button @click="tagsSectionExpanded = !tagsSectionExpanded"
+                <div class="flex items-center gap-2" @click="tagsSectionExpanded = !tagsSectionExpanded">
+                    <button
                         class="w-5 h-5 flex items-center justify-center opacity-70 hover:opacity-100 transition-opacity"
                         style="background:none; border:none; color:inherit; cursor:pointer; flex-shrink: 0;">
                         <span x-text="tagsSectionExpanded ? '▼' : '▶'" style="font-size: 10px;"></span>

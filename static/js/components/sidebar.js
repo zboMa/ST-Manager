@@ -12,8 +12,15 @@ export default function sidebar() {
         // 本地展开状态
         expandedFolders: {},
         dragOverFolder: null,
-        // 标签索引展开状态（默认展开）
-        tagsSectionExpanded: true,
+        // 标签索引展开状态（从本地存储读取，默认展开）
+        tagsSectionExpanded: (() => {
+            try {
+                const saved = localStorage.getItem('st_manager_tags_section_expanded');
+                return saved !== null ? saved === 'true' : true;
+            } catch (e) {
+                return true;
+            }
+        })(),
 
         // 设备类型和模式
         get deviceType() {
@@ -84,6 +91,15 @@ export default function sidebar() {
         },
 
         init() {
+            // 监听标签索引展开状态变化，保存到本地存储
+            this.$watch('tagsSectionExpanded', (value) => {
+                try {
+                    localStorage.setItem('st_manager_tags_section_expanded', value.toString());
+                } catch (e) {
+                    console.warn('Failed to save tags section expanded state:', e);
+                }
+            });
+
             window.addEventListener('refresh-folder-list', () => {
                 window.dispatchEvent(new CustomEvent('refresh-card-list'));
             });
