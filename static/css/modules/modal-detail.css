@@ -415,8 +415,16 @@ html.light-mode .detail-thumb-label{
   .detail-modal{ grid-template-columns: 420px 1fr; }
 }
 @media (max-width: 980px){
-  .detail-modal{ grid-template-columns: 1fr; height: 94vh; width: 96vw; }
-  .detail-left{ display:none; } /* 小屏可以先隐藏左侧（不丢功能：你可改成折叠） */
+  .detail-modal { 
+      margin: 0 auto !important;
+      grid-template-columns: 1fr; 
+      height: 94vh; 
+      width: 96vw !important; /* 手机模式占满 */
+
+      transform: none !important;
+  }
+  .detail-left{ display:none; }
+  .detail-modal-inner { grid-template-columns: 1fr; }
   .detail-tabs{ top: 0; position: sticky; } 
   .detail-grid-2{ grid-template-columns: 1fr; }
   .detail-filmstrip-outside { display: none !important; }
