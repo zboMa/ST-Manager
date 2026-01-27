@@ -19,6 +19,10 @@ export default function advancedEditor() {
         regexTestInput: "",
         regexTestResult: "",
 
+        // ST脚本扩展
+        activeScriptIndex: -1,
+        scriptDataJson: "",
+
         // 数据引用 (从 detailModal 传入)
         editingData: {
             extensions: {
@@ -44,6 +48,138 @@ export default function advancedEditor() {
                     this.showMobileSidebar = false;
                 }
             });
+
+            this.$watch('activeScriptIndex', (idx) => {
+                if (idx > -1) {
+                    const script = this.getTavernScripts()[idx];
+                    if (script) {
+                        // 确保结构完整
+                        if (!script.button) script.button = { enabled: true, buttons: [] };
+                        if (!script.data) script.data = {};
+                        // 格式化 JSON 以便编辑
+                        this.scriptDataJson = JSON.stringify(script.data, null, 2);
+                    }
+                }
+            });
+        },
+
+        // === 通用工具 ===
+        _downloadJson(data, filename) {
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        },
+
+        _readJsonFile(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = e => {
+                    try {
+                        resolve(JSON.parse(e.target.result));
+                    } catch (err) {
+                        reject(err);
+                    }
+                };
+                reader.readAsText(file);
+            });
+        },
+
+        // === Regex Import/Export ===
+        exportRegex(index) {
+            const script = this.editingData.extensions.regex_scripts[index];
+            if (!script) return;
+            // 清理内部 ID，导出纯净数据
+            const { id, ...data } = script; 
+            const name = script.scriptName || 'untitled';
+            this._downloadJson({ ...data, id: script.id }, `regex-${name}.json`);
+        },
+
+        async importRegex(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            try {
+                const data = await this._readJsonFile(file);
+                // 简单的格式校验
+                if (!data.findRegex && !data.scriptName) throw new Error("无效的正则脚本格式");
+                
+                // 赋予新 ID，防止冲突
+                data.id = crypto.randomUUID();
+                
+                if (!this.editingData.extensions.regex_scripts) this.editingData.extensions.regex_scripts = [];
+                this.editingData.extensions.regex_scripts.push(data);
+                this.activeRegexIndex = this.editingData.extensions.regex_scripts.length - 1;
+                alert("导入成功");
+            } catch (err) {
+                alert("导入失败: " + err.message);
+            }
+            e.target.value = ''; // 重置 input
+        },
+
+        // === Tavern Script Import/Export ===
+        exportScript(index) {
+            const scripts = this.getTavernScripts();
+            const script = scripts[index];
+            if (!script) return;
+            // 确保 data 字段是最新的（从 textarea 的字符串同步回对象）
+            this.syncScriptDataJson(); 
+            const name = script.name || 'untitled';
+            this._downloadJson(script, `酒馆助手脚本-${name}.json`);
+        },
+
+        async importScript(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            try {
+                const data = await this._readJsonFile(file);
+                // 校验
+                if (data.type !== 'script' && !data.content) throw new Error("无效的 ST 脚本格式");
+                
+                data.id = crypto.randomUUID();
+                // 确保默认字段
+                if (!data.button) data.button = { enabled: true, buttons: [] };
+                if (!data.data) data.data = {};
+
+                // 获取 scripts 数组并推入
+                const helper = this.editingData.extensions.tavern_helper;
+                let scriptBlock = helper.find(item => Array.isArray(item) && item[0] === "scripts");
+                if (!scriptBlock) {
+                    scriptBlock = ["scripts", []];
+                    helper.push(scriptBlock);
+                }
+                scriptBlock[1].push(data);
+                
+                // 强制更新视图
+                this.editingData.extensions.tavern_helper = [...helper];
+                this.activeScriptIndex = scriptBlock[1].length - 1;
+                alert("导入成功");
+            } catch (err) {
+                alert("导入失败: " + err.message);
+            }
+            e.target.value = '';
+        },
+
+        // === Tavern Script Data Sync ===
+        // 当 textarea 内容变化时，尝试解析 JSON 并回写到对象
+        syncScriptDataJson() {
+            if (this.activeScriptIndex === -1) return;
+            const scripts = this.getTavernScripts();
+            const script = scripts[this.activeScriptIndex];
+            if (!script) return;
+
+            try {
+                // 尝试解析 JSON
+                const parsed = JSON.parse(this.scriptDataJson);
+                script.data = parsed;
+            } catch (e) {
+                // 解析失败时不更新原对象，保持 UI 显示错误状态（可选：加个边框变红逻辑）
+                console.warn("JSON Parse Error in Data field");
+            }
         },
 
         // === Regex Script 管理 ===
@@ -180,9 +316,12 @@ export default function advancedEditor() {
             const newScript = {
                 name: "新脚本",
                 type: "script",
-                content: "$(()=>{\n\n});",
+                content: "// Write your JS code here\nconsole.log('Hello World');",
+                info: "作者备注信息",
                 enabled: false,
-                id: crypto.randomUUID()
+                id: crypto.randomUUID(),
+                button: { enabled: true, buttons: [] },
+                data: {}
             };
 
             // 确保 extensions 结构
@@ -208,9 +347,10 @@ export default function advancedEditor() {
             }
 
             scriptBlock[1].push(newScript);
-            
-            // 强制更新
             this.editingData.extensions.tavern_helper = [...helper];
+
+            // 自动选中新建的脚本
+            this.activeScriptIndex = scriptBlock[1].length - 1;
         },
 
         removeTavernScript(scriptId) {
