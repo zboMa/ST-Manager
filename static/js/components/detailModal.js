@@ -883,6 +883,16 @@ export default function detailModal() {
             }).catch(e => { this.isSaving = false; alert(e); });
         },
 
+        // 打开移动到包弹窗
+        openMoveToBundleModal() {
+            if (this.activeCard.is_bundle) return;
+            window.dispatchEvent(new CustomEvent('open-move-to-bundle-modal', {
+                detail: {
+                    cardId: this.activeCard.id
+                }
+            }));
+        },
+
         renameFolderFromDetail(currentPath) {
             if (!currentPath) return;
             const oldName = currentPath.split('/').pop();

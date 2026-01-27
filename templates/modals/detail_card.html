@@ -1009,6 +1009,16 @@
                                         </button>
                                     </div>
                                 </div>
+                                <div class="detail-manage-box" x-show="!activeCard.is_bundle">
+                                    <div class="detail-manage-label">移动到包</div>
+                                    <div class="detail-muted">将当前卡片移动到已存在的包中</div>
+                                    <div class="detail-manage-actions">
+                                        <button @click="openMoveToBundleModal()" class="btn-secondary"
+                                            style="border-color: #7c3aed; color: #7c3aed;">
+                                            📦 移动到包
+                                        </button>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                         <!-- 增加底部留白，防止滚动到底部太贴边 -->
