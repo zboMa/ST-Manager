@@ -4,6 +4,7 @@
  */
 
 import { moveCard } from '../api/card.js';
+import { buildFolderTree } from '../utils/folderTree.js';
 
 export default function moveCardsModal() {
     return {
@@ -13,6 +14,11 @@ export default function moveCardsModal() {
 
         get allFoldersList() {
             return this.$store.global.allFoldersList || [];
+        },
+
+        // 复用与侧边栏一致的树形构建逻辑（不依赖展开状态，始终展示完整树）
+        get folderTree() {
+            return buildFolderTree(this.allFoldersList);
         },
 
         init() {

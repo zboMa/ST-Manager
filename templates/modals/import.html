@@ -26,15 +26,33 @@
                 
                 <div>
                     <label class="form-label" style="font-weight: 500; margin-bottom: 0.5rem; display: block;">保存位置</label>
-                    <div class="relative">
-                        <select x-model="importTargetCategory" class="form-input" style="width: 100%; padding-left: 2.5rem;">
-                            <option value="">📂 (当前浏览目录)</option>
-                            <option value="根目录">🏠 根目录</option>
-                            <template x-for="folder in allFoldersList" :key="folder.path">
-                                <option :value="folder.path" x-text="'📁 ' + folder.path"></option>
+
+                    <!-- 使用公共文件夹树选择组件 -->
+                    <div x-data="folderTreeSelector({ 
+                        selectedPathVar: 'importTargetCategory',
+                        showQuickButtons: true,
+                        maxHeight: '220px'
+                    })" 
+                    @folder-selected="importTargetCategory = $event.detail.path">
+                        <!-- 快捷按钮 -->
+                        <div x-show="showQuickButtons" class="flex gap-2 mb-2">
+                            <button @click="selectFolder('')" :class="selectedPath === '' ? 'btn-primary' : 'btn-secondary'" class="flex-1 px-2 py-1 text-xs flex items-center justify-center gap-1">
+                                <span>📂</span><span>当前浏览目录</span>
+                            </button>
+                            <button @click="selectFolder('根目录')" :class="selectedPath === '根目录' ? 'btn-primary' : 'btn-secondary'" class="flex-1 px-2 py-1 text-xs flex items-center justify-center gap-1">
+                                <span>🏠</span><span>根目录</span>
+                            </button>
+                        </div>
+                        <!-- 树形列表 -->
+                        <div class="custom-scrollbar" :style="`max-height: ${maxHeight}; border-radius: 0.5rem; border: 1px solid var(--border-light); overflow-y: auto; background: var(--bg-sub); padding: 0.25rem 0;`">
+                            <template x-for="folder in folderTree" :key="folder.path">
+                                <div x-show="folder.visible" @click="selectFolder(folder.path)" class="flex items-center text-sm cursor-pointer transition-colors" :class="[selectedPath === folder.path ? 'bg-[var(--accent-main)] text-white' : 'hover:bg-[var(--bg-hover)] text-[var(--text-main)]']" :style="`padding: 0.4rem 0.75rem; padding-left: ${0.75 + Math.min(folder.level, 3) * 0.75}rem;`">
+                                    <span class="mr-2">📁</span>
+                                    <span class="truncate" x-text="folder.name"></span>
+                                </div>
                             </template>
-                        </select>
-                        <div style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--text-dim); pointer-events: none;">📍</div>
+                            <div x-show="folderTree.length === 0" class="px-3 py-2 text-xs text-[var(--text-dim)] text-center">暂无可用文件夹</div>
+                        </div>
                     </div>
                 </div>
 

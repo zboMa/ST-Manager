@@ -4,6 +4,7 @@
  */
 
 import { renameFolder, createFolder } from '../api/system.js'; // createSubFolder 实际上也是调用 createFolder
+import { buildFolderTree } from '../utils/folderTree.js';
 
 export default function folderOperations() {
     return {
@@ -26,7 +27,12 @@ export default function folderOperations() {
         set newFolderParent(val) { this.$store.global.folderModals.createRoot.parent = val; },
 
         // 获取文件夹列表供下拉框使用
-        get allFoldersList() { return this.$store.global.allFoldersList; },
+        get allFoldersList() { return this.$store.global.allFoldersList || []; },
+
+        // 复用与侧边栏一致的树形构建逻辑（不依赖展开状态，始终展示完整树）
+        get folderTree() {
+            return buildFolderTree(this.allFoldersList);
+        },
 
         // === 2. 业务逻辑 ===
 

@@ -6,6 +6,7 @@
 import { createFolder, moveFolder } from '../api/system.js';
 import { moveCard } from '../api/card.js';
 import { migrateLorebooks } from '../api/wi.js';
+import { buildFolderTree } from '../utils/folderTree.js';
 
 export default function sidebar() {
     return {
@@ -65,29 +66,7 @@ export default function sidebar() {
         // 计算属性：构建文件夹树 (依赖全局 Store 数据)
         get folderTree() {
             const list = this.$store.global.allFoldersList || [];
-            return list.map(folder => {
-                let isVisible = true;
-
-                // 计算可见性 (父级是否展开)
-                if (folder.level > 0) {
-                    let parts = folder.path.split('/');
-                    let currentPath = '';
-
-                    for (let i = 0; i < parts.length - 1; i++) {
-                        currentPath = i === 0 ? parts[i] : `${currentPath}/${parts[i]}`;
-                        if (!this.expandedFolders[currentPath]) {
-                            isVisible = false;
-                            break;
-                        }
-                    }
-                }
-
-                return {
-                    ...folder,
-                    visible: isVisible,
-                    expanded: !!this.expandedFolders[folder.path]
-                };
-            });
+            return buildFolderTree(list, this.expandedFolders);
         },
 
         init() {
