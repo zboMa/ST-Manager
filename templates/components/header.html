@@ -221,7 +221,7 @@
             </button>
             <button @click="$dispatch('open-automation-modal')" title="自动化规则管理"
                 class="btn-secondary hover:scale-105 transition-transform text-yellow-500">
-                ⚡
+                🤖
             </button>
             <button @click="openSettings()" title="系统设置" class="btn-secondary hover:scale-105 transition-transform">
                 ⚙️
@@ -315,9 +315,9 @@
                 <div class="menu-icon" x-text="isDarkMode ? '🌙' : '☀️'"></div>
                 <div class="menu-label">主题</div>
             </button>
-            <button @click="$dispatch('open-automation-modal'); closeMobileMenu()" 
+            <button @click="$dispatch('open-automation-modal'); closeMobileMenu()"
                 class="mobile-menu-btn-item accent">
-                <div class="menu-icon">⚡</div>
+                <div class="menu-icon">🤖</div>
                 <div class="menu-label">规则</div>
             </button>
             <button @click="openSettings(); closeMobileMenu()" class="mobile-menu-btn-item">

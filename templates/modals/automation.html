@@ -57,7 +57,7 @@
                 <span class="text-[var(--text-dim)]">全局规则:</span>
                 <template x-if="globalRulesetId">
                     <span class="text-yellow-600 font-bold flex items-center gap-1">
-                        ⚡ <span x-text="ruleSets.find(r=>r.id===globalRulesetId)?.meta?.name || '未知'"></span>
+                        🤖 <span x-text="ruleSets.find(r=>r.id===globalRulesetId)?.meta?.name || '未知'"></span>
                     </span>
                 </template>
                 <template x-if="!globalRulesetId">
@@ -78,7 +78,7 @@
                                 class="text-xs px-3 py-1 rounded border transition-all flex items-center gap-1" :class="globalRulesetId === rs.id 
                                     ? 'bg-yellow-500 text-black border-yellow-600 font-bold shadow-md' 
                                     : 'border-gray-500 text-gray-500 hover:border-yellow-500 hover:text-yellow-500'">
-                                <span x-text="globalRulesetId === rs.id ? '⚡ 已激活全局' : '⚡ 设为全局'"></span>
+                                <span x-text="globalRulesetId === rs.id ? '🤖 已激活全局' : '🤖 设为全局'"></span>
                             </button>
                         </div>
                         <div class="ruleset-meta flex justify-between">
@@ -109,7 +109,7 @@
                     <div x-show="activeRuleSet?.id && globalRulesetId === activeRuleSet?.id"
                         class="bg-yellow-500/10 border border-yellow-500/30 rounded px-3 py-2 flex justify-between items-center transition-all duration-300">
                         <div class="flex items-center gap-2 text-yellow-600 font-bold text-xs">
-                            <span class="text-lg">⚡</span>
+                            <span class="text-lg">🤖</span>
                             <span>当前状态：全局默认规则 (导入时自动运行)</span>
                         </div>
                         <button x-show="$store.global.deviceType !== 'mobile'" @click="toggleGlobalActive(activeRuleSet?.id)"
@@ -133,7 +133,7 @@
                                             ? 'bg-yellow-500 text-black border-yellow-600 font-bold shadow-sm' 
                                             : 'border-[var(--border-light)] text-[var(--text-dim)] hover:border-yellow-500 hover:text-yellow-500'"
                                         :title="(activeRuleSet?.id && globalRulesetId === activeRuleSet?.id) ? '点击关闭全局' : '设为全局自动规则'">
-                                        <span>⚡</span>
+                                        <span>🤖</span>
                                         <span
                                             x-text="(activeRuleSet?.id && globalRulesetId === activeRuleSet?.id) ? '已激活' : '设为全局'"></span>
                                     </button>
@@ -526,7 +526,7 @@
                 title="关闭">
                 <span class="text-lg">✕</span>
             </button>
-            <div class="text-6xl mb-4 opacity-20">⚡</div>
+            <div class="text-6xl mb-4 opacity-20">🤖</div>
             <p>请从左侧选择一个规则集，或新建一个</p>
         </div>
     </div>
