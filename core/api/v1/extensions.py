@@ -134,27 +134,28 @@ def upload_extension():
         if not files:
             return jsonify({"success": False, "msg": "未接收到文件"})
 
-        regex_root, scripts_root = _get_paths()
+        regex_root, scripts_root, qr_root = _get_paths()
         success_count = 0
         failed_list = []
-        
+
         for file in files:
             if not file.filename.lower().endswith('.json'):
                 continue
-                
+
             try:
                 content = file.read()
                 data = json.loads(content)
                 file.seek(0) # 重置指针准备保存
-                
+
                 # === 自动检测类型 ===
                 is_regex = False
                 is_script = False
-                
+                is_qr = False
+
                 # 1. 检测 Regex
                 if isinstance(data, dict) and ('findRegex' in data or 'regex' in data or 'scriptName' in data):
                     is_regex = True
-                
+
                 # 2. 检测 ST Script (Tavern Helper)
                 # 新版: dict with type='script' or has 'scripts' key
                 if isinstance(data, dict) and (data.get('type') == 'script' or 'scripts' in data):
@@ -162,20 +163,34 @@ def upload_extension():
                 # 旧版: list starting with ["scripts", ...]
                 elif isinstance(data, list) and len(data) > 0 and isinstance(data[0], str) and data[0] == 'scripts':
                     is_script = True
-                
+
+                # 3. 检测 Quick Reply
+                # 格式: dict with qrList/quickReplies/entries array or typical QR fields
+                if isinstance(data, dict):
+                    if any(k in data for k in ['qrList', 'quickReplies', 'entries']):
+                        is_qr = True
+                    # 其他可能的 QR 格式检测 (version, name, disableSend 组合)
+                    elif all(k in data for k in ['version', 'name']) and 'disableSend' in data:
+                        is_qr = True
+                    elif data.get('type') == 'quick_reply' or data.get('setName'):
+                        is_qr = True
+
                 # 决定保存路径
                 final_dir = None
-                
-                # 如果前端强制指定了类型（例如在正则页拖拽），优先使用前端意图，但需校验
+
+                # 如果前端强制指定了类型（例如在正则页/快速回复页拖拽），优先使用前端意图，但需校验
                 if target_type == 'regex':
                     if is_regex: final_dir = regex_root
                 elif target_type == 'scripts':
                     if is_script: final_dir = scripts_root
+                elif target_type == 'quick_replies':
+                    if is_qr: final_dir = qr_root
                 else:
                     # 自动归类模式
                     if is_script: final_dir = scripts_root
                     elif is_regex: final_dir = regex_root
-                
+                    elif is_qr: final_dir = qr_root
+
                 if not final_dir:
                     failed_list.append(f"{file.filename} (格式不匹配)")
                     continue

@@ -71,6 +71,7 @@ export default function advancedEditor() {
                 const { fileData, filePath, type } = e.detail;
                 this.activeRegexIndex = -1;
                 this.activeScriptIndex = -1;
+                this.activeQrIndex = -1;
                 this.isFileMode = true;
                 this.currentFilePath = filePath;
                 this.fileType = type; // 'regex' or 'script'
@@ -87,21 +88,22 @@ export default function advancedEditor() {
                 this.editingData = {
                     extensions: {
                         regex_scripts: type === 'regex' ? [fileData] : [],
-                        tavern_helper: type === 'script' ? { scripts: [fileData] } : { scripts: [] },
-                        // 这里的结构其实是为了适配 existing UI，QR 是单文件模式，直接存 fileData 即可
-                        // 为了统一，挂在 editingData 上
-                        quick_reply: type === 'quick_reply' ? fileData : null
-                    }
+                        tavern_helper: type === 'script' ? { scripts: [fileData] } : { scripts: [] }
+                    },
+                    quick_reply: type === 'quick_reply' ? fileData : null
                 };
 
                 // 自动选中
                 if (type === 'regex') {
                     this.activeTab = 'regex';
                     this.activeRegexIndex = 0;
+                } else if (type === 'quick_reply') {
+                    this.activeTab = 'quick_reply';
+                    this.activeQrIndex = 0;
                 } else {
+                    // 默认为 Scripts
                     this.activeTab = 'scripts';
                     this.activeScriptIndex = 0;
-                    // 初始化 JSON 编辑器内容
                     this.scriptDataJson = JSON.stringify(fileData.data || {}, null, 2);
                 }
             });

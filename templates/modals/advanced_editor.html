@@ -43,7 +43,11 @@
         <div class="adv-tab-bar" x-show="isFileMode"
             style="background: var(--bg-sub); border-bottom: 1px solid var(--border-light); cursor: default;">
             <div class="adv-tab active" style="border-bottom-color: var(--accent-main); color: var(--accent-main);">
-                <span class="tab-icon" x-text="fileType === 'regex' ? '🧩' : '📜'"></span>
+                <span class="tab-icon" x-text="{
+                    'regex': '🧩',
+                    'script': '📜',
+                    'quick_reply': '⚡'
+                }[fileType] || '📄'"></span>
                 <span class="tab-text"
                     x-text="currentFilePath ? currentFilePath.split('/').pop() : 'Editing File'"></span>
             </div>
@@ -643,23 +647,29 @@
             </div>
 
             <!-- === Tab 3: Quick Replies === -->
-            <div x-show="isFileMode && fileType === 'quick_reply'" class="adv-split-view">
+            <div x-show="activeTab === 'quick_reply'" class="adv-split-view">
 
                 <!-- 左侧：回复列表 -->
-                <div class="adv-list-pane custom-scrollbar overflow-y-auto">
+                <div class="adv-list-pane custom-scrollbar overflow-y-auto"
+                    :class="$store.global.deviceType === 'mobile' ? (showMobileSidebar ? 'fixed top-14 left-0 bottom-0 z-50 w-[280px] bg-[var(--bg-panel)]' : 'hidden') : 'flex'">
                     <div
                         class="p-3 border-b border-[var(--border-light)] flex justify-between items-center bg-[var(--bg-sub)] sticky top-0 z-10">
                         <span class="text-xs font-bold text-[var(--text-sub)] uppercase">Reply List</span>
-                        <button @click="addQrEntry()"
-                            class="text-xs bg-green-600 hover:bg-green-500 text-white px-2 py-1 rounded transition">
-                            + 新建
-                        </button>
+                        <div class="flex items-center gap-1">
+                            <button @click="addQrEntry()"
+                                class="text-xs bg-green-600 hover:bg-green-500 text-white px-2 py-1 rounded transition">
+                                + 新建
+                            </button>
+                            <button x-show="$store.global.deviceType === 'mobile'" @click="showMobileSidebar=false"
+                                class="ml-2">✕</button>
+                        </div>
                     </div>
 
                     <div class="flex flex-col">
                         <template x-for="(qr, idx) in editingData.quick_reply?.qrList" :key="qr.id || idx">
                             <div class="adv-list-item group flex items-center justify-between gap-2"
-                                :class="activeQrIndex === idx ? 'active' : ''" @click="activeQrIndex = idx">
+                                :class="activeQrIndex === idx ? 'active' : ''"
+                                @click="activeQrIndex = idx; if($store.global.deviceType==='mobile') showMobileSidebar=false">
 
                                 <div class="flex-1 min-w-0 overflow-hidden">
                                     <div class="flex justify-between items-center mb-1">
@@ -684,14 +694,14 @@
                         </template>
                         <div x-show="!editingData.quick_reply?.qrList?.length"
                             class="p-8 text-center text-[var(--text-dim)] text-xs">
-                            暂无回复条目
+                            暂无回复条目<br>点击上方按钮添加
                         </div>
                     </div>
                 </div>
 
                 <!-- 右侧：QR 编辑器 -->
                 <template x-if="editingData.quick_reply">
-                    <div class="adv-editor-pane custom-scrollbar">
+                    <div class="adv-editor-pane custom-scrollbar w-full">
 
                         <!-- A. 全局设置 (Set Settings) -->
                         <div class="adv-section mb-4" x-show="activeQrIndex === -1">
