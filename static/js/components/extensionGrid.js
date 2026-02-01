@@ -25,7 +25,7 @@ export default function extensionGrid() {
             });
             
             // 初始加载
-            if (['regex', 'scripts'].includes(this.$store.global.currentMode)) {
+            if (['regex', 'scripts', 'quick_replies'].includes(this.$store.global.currentMode)) {
                 this.currentMode = this.$store.global.currentMode;
                 this.fetchItems();
             }
@@ -33,7 +33,8 @@ export default function extensionGrid() {
 
         fetchItems() {
             this.isLoading = true;
-            fetch(`/api/extensions/list?mode=${this.currentMode}`)
+            const filterType = this.$store.global.extensionFilterType || 'all';
+            fetch(`/api/extensions/list?mode=${this.currentMode}&filter_type=${filterType}`)
                 .then(res => res.json())
                 .then(res => {
                     this.items = res.items || [];

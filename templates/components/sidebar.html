@@ -197,8 +197,8 @@
         </div>
     </div>
 
-    <!-- === 模式 3: 扩展脚本侧边栏 (Regex & Scripts) === -->
-    <div x-show="(currentMode === 'regex' || currentMode === 'scripts') && visibleSidebar"
+    <!-- === 模式 3: 扩展脚本侧边栏 (Regex & Scripts & Quick Replies) === -->
+    <div x-show="['regex', 'scripts', 'quick_replies'].includes(currentMode) && visibleSidebar"
         class="flex-1 flex flex-col overflow-hidden bg-[var(--bg-panel)]" x-data>
         <div class="p-4 space-y-2">
             <!-- 来源筛选标题 -->
@@ -218,7 +218,11 @@
                 <span>🌐 全局目录</span>
                 <!-- 动态显示目录名 -->
                 <span class="text-xs opacity-60"
-                    x-text="currentMode === 'regex' ? 'extensions/regex' : 'extensions/tavern_helper'"></span>
+                    x-text="{
+                        'regex': 'extensions/regex',
+                        'scripts': 'extensions/tavern_helper',
+                        'quick_replies': 'extensions/quick-replies'
+                    }[currentMode]"></span>
             </button>
 
             <!-- 资源绑定 -->

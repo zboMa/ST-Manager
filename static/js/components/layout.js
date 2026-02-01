@@ -126,6 +126,15 @@ export default function layout() {
             this.$store.global.currentMode = mode;
             this.selectedIds = []; // 清空选中
 
+            // 切换到非卡片模式时，清除过滤条件
+            if (mode !== 'cards' && mode !== 'worldinfo') {
+                this.$store.global.viewState.searchQuery = '';
+                this.$store.global.viewState.filterTags = [];
+                this.$store.global.viewState.excludedTags = [];
+                this.$store.global.viewState.filterCategory = '';
+                this.$store.global.viewState.favFilter = 'none';
+            }
+
             // 触发数据加载 (通过事件通知 Grid 组件)
             if (mode === 'worldinfo') {
                 window.dispatchEvent(new CustomEvent('refresh-wi-list'));
