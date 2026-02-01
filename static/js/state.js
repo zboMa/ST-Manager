@@ -74,11 +74,16 @@ export function initState() {
 
         extensionFilterType: 'all', // 'all', 'global', 'resource'
 
+        // 预设筛选状态
+        presetFilterType: 'all', // 'all', 'global', 'resource'
+        presetSearch: '',
+
         availableRuleSets: [], // 规则集列表
         
         // 设置表单
         settingsForm: { 
             cards_dir: 'data/library/characters',
+            presets_dir: 'data/library/presets',
             quick_replies_dir: 'data/library/extensions/quick-replies',
             default_sort: 'date_desc', 
             st_url: 'http://127.0.0.1:8000', 
