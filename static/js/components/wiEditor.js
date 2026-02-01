@@ -271,7 +271,8 @@ export default function wiEditor() {
                 getWorldInfoDetail({
                     id: item.id,
                     source_type: item.type, // list 返回的是 type
-                    file_path: item.path
+                    file_path: item.path,
+                    force_full: true
                 }).then(res => {
                     if (res.success) {
                         // 归一化数据
@@ -303,7 +304,8 @@ export default function wiEditor() {
             getWorldInfoDetail({
                 id: item.id,
                 source_type: item.source_type,
-                file_path: item.file_path
+                file_path: item.file_path,
+                force_full: true
             }).then(res => {
                 this.isLoading = false;
                 if (res.success) {

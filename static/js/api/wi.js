@@ -13,7 +13,7 @@ export async function listWorldInfo(params) {
 
 // 获取世界书详情
 export async function getWorldInfoDetail(payload) {
-    // payload: { id, source_type, file_path }
+    // payload: { id, source_type, file_path, preview_limit?, force_full? }
     const res = await fetch('/api/world_info/detail', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

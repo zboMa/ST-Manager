@@ -119,8 +119,9 @@ def update_card_content(card_id, temp_path, is_bundle_update, keep_ui_data, new_
     # 检查原文件是否存在 (非 Bundle 新增模式下)
     if not os.path.exists(original_full_path) and not is_bundle_update:
         return {"success": False, "msg": f"原角色卡文件不存在: {original_rel_path}"}
-        
+
     old_ext = os.path.splitext(original_full_path)[1].lower()
+    fallback_filename = os.path.basename(original_full_path) or os.path.basename(temp_path)
     
     # ==============================================================================
     # 元数据提取与深度合并策略 (V3 兼容)
@@ -181,7 +182,7 @@ def update_card_content(card_id, temp_path, is_bundle_update, keep_ui_data, new_
     elif 'name' in target_block: 
         hint_name_for_folder = target_block['name']
     else: 
-        hint_name_for_folder = os.path.splitext(new_filename)[0]
+        hint_name_for_folder = os.path.splitext(fallback_filename)[0]
     
     # --- 资源归档辅助函数 ---
     def _archive_file(src_path, label):

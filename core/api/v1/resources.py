@@ -25,6 +25,23 @@ logger = logging.getLogger(__name__)
 
 bp = Blueprint('resources', __name__)
 
+def _is_within_base(path: str, base: str) -> bool:
+    """检查路径是否在 base 目录内"""
+    try:
+        return os.path.commonpath([os.path.abspath(path), os.path.abspath(base)]) == os.path.abspath(base)
+    except Exception:
+        return False
+
+def _is_safe_filename(name: str) -> bool:
+    """仅允许文件名，不允许路径或父目录引用"""
+    if not name:
+        return False
+    if name != os.path.basename(name):
+        return False
+    if '..' in name.replace('\\', '/'):
+        return False
+    return True
+
 @bp.route('/cards_file/<path:filename>')
 def serve_card_image(filename):
     """
@@ -169,6 +186,8 @@ def api_delete_resource_file():
         
         if not card_id or not filename:
             return jsonify({"success": False, "msg": "参数缺失"})
+        if not _is_safe_filename(filename):
+            return jsonify({"success": False, "msg": "非法文件名"})
 
         # 1. 解析资源目录路径
         ui_data = load_ui_data()
@@ -376,9 +395,27 @@ def api_list_resource_files():
         
         # 目标资源目录 (支持绝对路径或相对路径)
         if os.path.isabs(folder_name):
+            cfg = load_config()
+            allowed_roots = cfg.get('allowed_abs_resource_roots', []) or []
+            allowed_abs = []
+            for root in allowed_roots:
+                if isinstance(root, str) and os.path.isabs(root):
+                    allowed_abs.append(root)
+
+            ui_data = load_ui_data()
+            for v in ui_data.values():
+                if isinstance(v, dict):
+                    abs_path = v.get('resource_folder')
+                    if isinstance(abs_path, str) and os.path.isabs(abs_path):
+                        allowed_abs.append(abs_path)
+
+            if not any(_is_within_base(folder_name, base) for base in allowed_abs):
+                return jsonify({"success": False, "msg": "非法路径"})
             target_dir = folder_name
         else:
             target_dir = os.path.join(res_root, folder_name)
+            if not _is_within_base(target_dir, res_root):
+                return jsonify({"success": False, "msg": "非法路径"})
 
         if not os.path.exists(target_dir):
             return jsonify({"success": True, "files": {"skins": [], "lorebooks": [], "regex": [], "scripts": []}})

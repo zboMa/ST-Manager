@@ -45,12 +45,12 @@ def sanitize_filename(filename: str, replacement: str = '_') -> str:
 
 def save_json_atomic(path, data):
     """原子化保存 JSON，确保格式统一"""
+    temp_path = path + ".tmp"
     try:
         # 1. 标准化排序
         sorted_data = deterministic_sort(data)
         
         # 2. 写入临时文件
-        temp_path = path + ".tmp"
         with open(temp_path, 'w', encoding='utf-8') as f:
             # ensure_ascii=False 显示中文, indent=4 美化, separators 去除行尾多余空格
             json.dump(sorted_data, f, ensure_ascii=False, indent=4, separators=(',', ': '))
@@ -63,6 +63,11 @@ def save_json_atomic(path, data):
         return True
     except Exception as e:
         logger.error(f"Save JSON error: {e}")
+        if os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except Exception:
+                pass
         return False
 
 # 判断是否是卡片文件
@@ -236,25 +241,3 @@ def write_snapshot_file(src_path, dst_path, data, is_png, compact=False):
             pass
         return False
 
-def save_json_atomic(path, data):
-    """原子化保存 JSON，确保格式统一"""
-    try:
-        # 写入临时文件
-        temp_path = path + ".tmp"
-        with open(temp_path, 'w', encoding='utf-8') as f:
-            # indent=4 保持可读性
-            json.dump(data, f, ensure_ascii=False, indent=4)
-            
-        # 替换原文件 (原子操作)
-        if os.path.exists(path):
-            os.replace(temp_path, path)
-        else:
-            os.rename(temp_path, path)
-        return True
-    except Exception as e:
-        logger.error(f"Save JSON error: {e}")
-        print(f"Save JSON error: {e}")
-        if os.path.exists(temp_path):
-            try: os.remove(temp_path)
-            except: pass
-        return False

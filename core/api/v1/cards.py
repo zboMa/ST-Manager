@@ -7,6 +7,7 @@ import time
 import requests
 import sqlite3
 import logging
+from typing import Any, Dict
 from urllib.parse import quote, unquote, urlparse
 from PIL import Image
 from flask import Blueprint, request, jsonify, send_from_directory 
@@ -77,6 +78,127 @@ def _merge_tags_into_new_info(old_path, new_info):
     except Exception as e:
         logger.error(f"Tag merge failed: {e}")
         return None
+
+def _is_safe_rel_path(rel_path, allow_empty: bool = False) -> bool:
+    """检查是否为安全的相对路径，防止路径遍历"""
+    if rel_path is None:
+        return False
+    rel_path = str(rel_path).strip()
+    if rel_path == "":
+        return allow_empty
+    rel_clean = rel_path.replace('\\', '/')
+    if os.path.isabs(rel_path):
+        return False
+    drive, _ = os.path.splitdrive(rel_path)
+    if drive:
+        return False
+    norm = os.path.normpath(rel_clean).replace('\\', '/')
+    if norm in ('.', ''):
+        return allow_empty
+    if norm == '..' or norm.startswith('../') or '/..' in f'/{norm}':
+        return False
+    if norm.startswith('/'):
+        return False
+    if any(part == '..' for part in rel_clean.split('/')):
+        return False
+    return True
+
+def _is_safe_filename(name: str) -> bool:
+    """仅允许文件名，不允许路径或父目录引用"""
+    if not name:
+        return False
+    if name != os.path.basename(name):
+        return False
+    if '..' in name.replace('\\', '/'):
+        return False
+    return True
+
+def _apply_wi_preview(book_data, preview_limit: int, content_limit: int) -> Dict[str, Any]:
+    """
+    对世界书数据做预览截断，避免超大条目导致前端卡死。
+    返回 {data, truncated, total_entries, preview_limit, truncated_content, preview_entry_max_chars}
+    """
+    truncated = False
+    truncated_content = False
+    total_entries = 0
+
+    def _count_entries(raw):
+        if isinstance(raw, list):
+            return len(raw)
+        if isinstance(raw, dict):
+            entries = raw.get('entries')
+            if isinstance(entries, list):
+                return len(entries)
+            if isinstance(entries, dict):
+                return len(entries.keys())
+        return 0
+
+    def _slice_entries(raw, limit):
+        if isinstance(raw, list):
+            return raw[:limit]
+        if isinstance(raw, dict):
+            entries = raw.get('entries')
+            if isinstance(entries, list):
+                new_data = dict(raw)
+                new_data['entries'] = entries[:limit]
+                return new_data
+            if isinstance(entries, dict):
+                keys = list(entries.keys())
+                try:
+                    keys.sort(key=lambda k: int(k))
+                except Exception:
+                    keys.sort()
+                trimmed = {k: entries[k] for k in keys[:limit]}
+                new_data = dict(raw)
+                new_data['entries'] = trimmed
+                return new_data
+        return raw
+
+    def _truncate_entry(entry, limit):
+        nonlocal truncated_content
+        if not isinstance(entry, dict):
+            return entry
+        new_entry = dict(entry)
+        content = new_entry.get('content')
+        if isinstance(content, str) and len(content) > limit:
+            new_entry['content'] = content[:limit] + ' ...'
+            truncated_content = True
+        comment = new_entry.get('comment')
+        if isinstance(comment, str) and len(comment) > limit:
+            new_entry['comment'] = comment[:limit] + ' ...'
+            truncated_content = True
+        return new_entry
+
+    data = book_data
+    if preview_limit and preview_limit > 0:
+        total_entries = _count_entries(data)
+        if total_entries > preview_limit:
+            data = _slice_entries(data, preview_limit)
+            truncated = True
+
+    if content_limit and content_limit > 0:
+        if isinstance(data, list):
+            data = [_truncate_entry(e, content_limit) for e in data]
+        elif isinstance(data, dict):
+            entries = data.get('entries')
+            if isinstance(entries, list):
+                data = dict(data)
+                data['entries'] = [_truncate_entry(e, content_limit) for e in entries]
+            elif isinstance(entries, dict):
+                data = dict(data)
+                new_entries = {}
+                for k, v in entries.items():
+                    new_entries[k] = _truncate_entry(v, content_limit)
+                data['entries'] = new_entries
+
+    return {
+        "data": data,
+        "truncated": truncated,
+        "total_entries": total_entries,
+        "preview_limit": preview_limit or 0,
+        "truncated_content": truncated_content,
+        "preview_entry_max_chars": content_limit or 0
+    }
 
 @bp.route('/api/list_cards')
 def api_list_cards():
@@ -282,10 +404,14 @@ def api_update_card():
         force_set_cover = data.get('set_as_cover', False) 
         
         if not raw_id: return jsonify({"success": False, "msg": "Missing ID"})
+        if not _is_safe_rel_path(raw_id):
+            return jsonify({"success": False, "msg": "非法路径"}), 400
         
         card_id = raw_id.replace('/', os.sep)
         # 默认不改文件名
         new_filename = data.get('new_filename') or os.path.basename(card_id)
+        if new_filename and not _is_safe_filename(new_filename):
+            return jsonify({"success": False, "msg": "非法文件名"}), 400
         
         old_full_path = os.path.join(CARDS_FOLDER, card_id)
         
@@ -611,6 +737,12 @@ def api_move_card():
         if target_cat == "根目录": target_cat = ""
         card_ids = data.get('card_ids', [])
         if 'card_id' in data: card_ids.append(data['card_id'])
+
+        if not _is_safe_rel_path(target_cat, allow_empty=True):
+            return jsonify({"success": False, "msg": "非法目标路径"}), 400
+        for cid in card_ids:
+            if not _is_safe_rel_path(cid):
+                return jsonify({"success": False, "msg": "非法卡片路径"}), 400
         
         # 目标基础目录
         dst_base_dir = os.path.join(CARDS_FOLDER, target_cat)
@@ -832,6 +964,10 @@ def api_check_resource_folders():
         card_ids = request.json.get('card_ids', [])
         if not card_ids:
             return jsonify({"success": False, "msg": "未选择文件"})
+
+        for cid in card_ids:
+            if not _is_safe_rel_path(cid):
+                return jsonify({"success": False, "msg": "非法卡片路径"}), 400
         
         cfg = load_config()
         resources_dir = os.path.join(BASE_DIR, cfg.get('resources_dir', 'data/assets/card_assets'))
@@ -876,6 +1012,10 @@ def api_delete_cards():
         
         if not card_ids:
             return jsonify({"success": False, "msg": "未选择文件"})
+
+        for cid in card_ids:
+            if not _is_safe_rel_path(cid):
+                return jsonify({"success": False, "msg": "非法卡片路径"}), 400
 
         deleted_count = 0
         ui_data = load_ui_data()
@@ -990,6 +1130,9 @@ def api_import_from_url():
         url = data.get('url')
         target_category = data.get('category', '')
         if target_category == "根目录": target_category = ""
+
+        if not _is_safe_rel_path(target_category, allow_empty=True):
+            return jsonify({"success": False, "msg": "非法目标路径"}), 400
         
         resolution = data.get('resolution', 'check') # check, rename, overwrite, cancel
         reuse_temp_name = data.get('temp_filename')
@@ -1249,6 +1392,8 @@ def api_change_image():
         file = request.files.get('image')
         if not raw_id or not file:
             return jsonify({"success": False, "msg": "Missing ID or File"})
+        if not _is_safe_rel_path(raw_id):
+            return jsonify({"success": False, "msg": "非法路径"}), 400
         
         # 计算路径
         card_path = os.path.join(CARDS_FOLDER, raw_id.replace('/', os.sep))
@@ -1591,6 +1736,8 @@ def api_update_card_from_url():
         image_policy = data.get('image_policy', 'overwrite')
         
         if not url: return jsonify({"success": False, "msg": "URL不能为空"})
+        if not _is_safe_rel_path(card_id):
+            return jsonify({"success": False, "msg": "非法路径"}), 400
 
         # 下载文件
         headers = {'User-Agent': 'Mozilla/5.0 ... Chrome/120.0'}
@@ -1706,6 +1853,8 @@ def api_toggle_bundle_mode():
         action = request.json.get('action', 'check') # check | enable | disable
         
         if not folder_path: return jsonify({"success": False, "msg": "路径为空"})
+        if not _is_safe_rel_path(folder_path):
+            return jsonify({"success": False, "msg": "非法路径"}), 400
             
         full_path = os.path.join(CARDS_FOLDER, folder_path)
         marker_path = os.path.join(full_path, '.bundle')
@@ -1816,6 +1965,10 @@ def api_convert_to_bundle():
         
         if not card_id or not new_bundle_name:
             return jsonify({"success": False, "msg": "参数不完整"})
+        if not _is_safe_rel_path(card_id):
+            return jsonify({"success": False, "msg": "非法路径"}), 400
+        if not _is_safe_filename(new_bundle_name):
+            return jsonify({"success": False, "msg": "非法文件夹名"}), 400
             
         # 1. 路径检查
         rel_path = card_id.replace('/', os.sep)
@@ -1903,6 +2056,8 @@ def api_get_raw_metadata():
         card_id = request.json.get('id')
         if not card_id:
             return jsonify({})
+        if not _is_safe_rel_path(card_id):
+            return jsonify({"error": "Invalid path"}), 400
         
         # 确保路径分隔符正确
         full_path = os.path.join(CARDS_FOLDER, card_id.replace('/', os.sep))
@@ -1926,6 +2081,8 @@ def api_get_raw_metadata():
 def api_get_card_detail():
     try:
         card_id = request.json.get('id')
+        if card_id and not _is_safe_rel_path(card_id):
+            return jsonify({"success": False, "msg": "非法路径"}), 400
         
         # 1. 尝试从数据库读取完整信息 (比读文件快)
         db_path = DEFAULT_DB_PATH
@@ -1992,6 +2149,34 @@ def api_get_card_detail():
             "image_url": f"/cards_file/{quote(card_id)}?t={mtime}",
             "thumb_url": f"/api/thumbnail/{quote(card_id)}?t={mtime}"
         }
+
+        # 预览模式：嵌入式世界书可能过大，按需截断
+        preview_wi = bool(request.json.get('preview_wi', False))
+        force_full_wi = bool(request.json.get('force_full_wi', False))
+        if preview_wi and not force_full_wi:
+            cfg = load_config()
+            raw_limit = request.json.get('wi_preview_limit')
+            raw_content_limit = request.json.get('wi_preview_entry_max_chars')
+
+            try:
+                preview_limit = int(raw_limit) if raw_limit is not None else int(cfg.get('wi_preview_limit', 300))
+            except Exception:
+                preview_limit = int(cfg.get('wi_preview_limit', 300))
+
+            try:
+                content_limit = int(raw_content_limit) if raw_content_limit is not None else int(cfg.get('wi_preview_entry_max_chars', 2000))
+            except Exception:
+                content_limit = int(cfg.get('wi_preview_entry_max_chars', 2000))
+
+            preview_result = _apply_wi_preview(card_data.get('character_book'), preview_limit, content_limit)
+            card_data['character_book'] = preview_result.get('data')
+            card_data['wi_preview'] = {
+                "truncated": preview_result.get('truncated', False),
+                "total_entries": preview_result.get('total_entries', 0),
+                "preview_limit": preview_result.get('preview_limit', 0),
+                "truncated_content": preview_result.get('truncated_content', False),
+                "preview_entry_max_chars": preview_result.get('preview_entry_max_chars', 0)
+            }
         # 如果 DB 有 token_count，带上（用于详情页/列表同步）
         if row and 'token_count' in row.keys():
             card_data['token_count'] = row['token_count'] or 0
@@ -2031,10 +2216,10 @@ def api_delete_tags():
 
         scan_root = CARDS_FOLDER
         if target_category and target_category != "根目录":
+            if not _is_safe_rel_path(target_category):
+                return jsonify({"success": False, "msg": "非法分类路径"}), 400
             # 如果指定了分类，只扫描该分类下的文件
-            # 注意：这里需要处理路径拼接，防止路径遍历攻击
-            safe_cat = target_category.replace('..', '').strip('/\\')
-            scan_root = os.path.join(CARDS_FOLDER, safe_cat)
+            scan_root = os.path.join(CARDS_FOLDER, target_category)
 
         if not os.path.exists(scan_root):
              return jsonify({"success": False, "msg": "目标分类不存在"})
@@ -2142,6 +2327,10 @@ def api_batch_tags():
         add_tags = request.json.get("add", []) or []
         remove_tags = request.json.get("remove", []) or []
 
+        for cid in ids:
+            if not _is_safe_rel_path(cid):
+                return jsonify({"success": False, "msg": "非法卡片路径"}), 400
+
         updated = 0
 
         # 数据库连接 (为了持久化标签变更，防止重启丢失)
@@ -2197,6 +2386,8 @@ def api_update_card_file():
         image_policy = request.form.get('image_policy', 'overwrite')
         
         if not new_card_file: return jsonify({"success": False, "msg": "未提供文件"})
+        if not _is_safe_rel_path(card_id):
+            return jsonify({"success": False, "msg": "非法路径"}), 400
 
         new_upload_ext = os.path.splitext(new_card_file.filename)[1].lower()
         temp_filename = f"temp_up_{uuid.uuid4().hex}{new_upload_ext}"
@@ -2226,6 +2417,11 @@ def api_set_skin_cover():
         skin_filename = data.get('skin_filename')
         save_old = data.get('save_old', False)
         
+        if not _is_safe_rel_path(card_id):
+            return jsonify({"success": False, "msg": "非法路径"}), 400
+        if not _is_safe_filename(skin_filename):
+            return jsonify({"success": False, "msg": "非法文件名"}), 400
+        
         result = swap_skin_to_cover(card_id, skin_filename, save_old)
         return jsonify(result)
     except Exception as e:
@@ -2239,10 +2435,15 @@ def api_create_folder():
         data = request.json
         base = CARDS_FOLDER
         parent_rel = ""
-        if data.get('parent') and data.get('parent') != "根目录":
-            parent_rel = data.get('parent').replace('/', os.sep)
+        parent_val = data.get('parent')
+        if parent_val and parent_val != "根目录":
+            if not _is_safe_rel_path(parent_val):
+                return jsonify({"success": False, "msg": "非法父目录"}), 400
+            parent_rel = parent_val.replace('/', os.sep)
             base = os.path.join(CARDS_FOLDER, parent_rel)
         new_folder_name = data.get('name')
+        if not _is_safe_filename(new_folder_name):
+            return jsonify({"success": False, "msg": "非法文件夹名"}), 400
         new_folder_path = os.path.join(base, new_folder_name)
         if os.path.exists(new_folder_path):
              return jsonify({"success": False, "msg": "文件夹已存在"})
@@ -2272,10 +2473,10 @@ def api_rename_folder():
         
         if not old_path or not new_name:
             return jsonify({"success": False, "msg": "参数不完整"})
-        
-        # 基础安全检查
-        if ".." in old_path or old_path.startswith("/") or old_path.startswith("\\"):
-            return jsonify({"success": False, "msg": "非法路径"})
+        if not _is_safe_rel_path(old_path):
+            return jsonify({"success": False, "msg": "非法路径"}), 400
+        if not _is_safe_filename(new_name):
+            return jsonify({"success": False, "msg": "非法文件夹名"}), 400
             
         # 获取父目录路径和新完整路径
         old_path_sys = old_path.replace('/', os.sep)
@@ -2383,10 +2584,8 @@ def api_delete_folder():
         folder_path = request.json.get('folder_path')
         if not folder_path or folder_path == "根目录":
             return jsonify({"success": False, "msg": "根目录不可删除"})
-        
-        # 安全检查
-        if ".." in folder_path or folder_path.startswith("/") or folder_path.startswith("\\"):
-             return jsonify({"success": False, "msg": "非法路径"})
+        if not _is_safe_rel_path(folder_path):
+             return jsonify({"success": False, "msg": "非法路径"}), 400
 
         # 源目录和目标父目录
         target_dir = os.path.join(CARDS_FOLDER, folder_path.replace('/', os.sep))
@@ -2576,10 +2775,11 @@ def api_move_folder():
         
         if not source_path:
             return jsonify({"success": False, "msg": "源路径不能为空"})
-            
-        # 基础安全检查
-        if ".." in source_path or source_path.startswith("/") or source_path.startswith("\\"):
-            return jsonify({"success": False, "msg": "非法源路径"})
+        if not _is_safe_rel_path(source_path):
+            return jsonify({"success": False, "msg": "非法源路径"}), 400
+        if target_parent_path and target_parent_path != "根目录":
+            if not _is_safe_rel_path(target_parent_path):
+                return jsonify({"success": False, "msg": "非法目标路径"}), 400
         
         # 处理路径
         source_full_path = os.path.join(CARDS_FOLDER, source_path)
@@ -2760,6 +2960,8 @@ def api_upload_stage():
 
         target_category = request.form.get('category', '')
         if target_category == "根目录": target_category = ""
+        if not _is_safe_rel_path(target_category, allow_empty=True):
+            return jsonify({"success": False, "msg": "非法目标路径"}), 400
         
         # 目标真实路径
         target_base_dir = os.path.join(CARDS_FOLDER, target_category)
@@ -2867,6 +3069,10 @@ def api_upload_commit():
         decisions = data.get('decisions', [])
 
         if not batch_id: return jsonify({"success": False, "msg": "Missing batch_id"})
+        if not _is_safe_filename(batch_id):
+            return jsonify({"success": False, "msg": "非法批次ID"}), 400
+        if not _is_safe_rel_path(category, allow_empty=True):
+            return jsonify({"success": False, "msg": "非法目标路径"}), 400
 
         stage_dir = os.path.join(TEMP_DIR, 'batch_upload', batch_id)
         target_base_dir = os.path.join(CARDS_FOLDER, category)

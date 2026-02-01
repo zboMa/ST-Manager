@@ -6,7 +6,7 @@ import shutil
 import logging
 from PIL import Image, PngImagePlugin
 from core.consts import SIDECAR_EXTENSIONS
-from core.config import INTERNAL_DIR
+from core.config import INTERNAL_DIR, load_config
 from core.utils.data import normalize_card_v3, deterministic_sort, sanitize_for_utf8
 from core.utils.filesystem import save_json_atomic
 
@@ -15,6 +15,14 @@ logger = logging.getLogger(__name__)
 # 获取默认图片路径
 def get_default_card_image_path():
     return os.path.join(INTERNAL_DIR, 'static', 'images', 'default_card.png')
+
+def _should_deterministic_png():
+    """是否启用 PNG 元数据确定性排序（默认关闭）"""
+    try:
+        cfg = load_config()
+        return bool(cfg.get('png_deterministic_sort', False))
+    except Exception:
+        return False
 
 def extract_card_info(filepath):
     try:
@@ -127,7 +135,13 @@ def write_card_metadata(filepath, json_data):
 
         # PNG 格式文件写入
         # 1. 准备数据
-        new_chara_str = base64.b64encode(json.dumps(json_data).encode('utf-8')).decode('utf-8')
+        use_deterministic = _should_deterministic_png()
+        png_payload = normalized_data if use_deterministic else json_data
+        if use_deterministic:
+            json_str = json.dumps(png_payload, ensure_ascii=False, separators=(',', ':'))
+        else:
+            json_str = json.dumps(png_payload)
+        new_chara_str = base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
         # 2. 打开图片 (此时图片像素已经是新的了)
         img = Image.open(filepath)
 

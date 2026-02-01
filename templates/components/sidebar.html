@@ -49,6 +49,11 @@
         <!-- 第二类：扩展工具 (折叠或小字排版) -->
         <div
             class="flex bg-[var(--bg-sub)] overflow-x-auto custom-scrollbar no-scrollbar border-t border-[var(--border-light)]">
+            <button @click="switchMode('presets')"
+                class="px-4 py-2 text-xs font-medium whitespace-nowrap transition-colors hover:bg-[var(--bg-hover)]"
+                :class="currentMode === 'presets' ? 'text-[var(--accent-light)] bg-[var(--bg-hover)]' : 'text-[var(--text-dim)]'">
+                📝 预设
+            </button>
             <button @click="switchMode('regex')"
                 class="px-4 py-2 text-xs font-medium whitespace-nowrap transition-colors hover:bg-[var(--bg-hover)]"
                 :class="currentMode === 'regex' ? 'text-[var(--accent-light)] bg-[var(--bg-hover)]' : 'text-[var(--text-dim)]'">
@@ -197,7 +202,43 @@
         </div>
     </div>
 
-    <!-- === 模式 3: 扩展脚本侧边栏 (Regex & Scripts & Quick Replies) === -->
+    <!-- === 模式 3: 预设侧边栏 === -->
+    <div x-show="currentMode === 'presets' && visibleSidebar"
+        class="flex-1 flex flex-col overflow-hidden bg-[var(--bg-panel)]" x-data>
+        <div class="p-4 space-y-2">
+            <!-- 来源筛选标题 -->
+            <div class="text-xs font-bold text-[var(--text-dim)] uppercase tracking-wider mb-2">来源筛选</div>
+
+            <!-- 全部显示 -->
+            <button @click="$store.global.presetFilterType='all'"
+                class="w-full text-left px-3 py-2 rounded text-sm flex justify-between items-center transition-colors"
+                :class="$store.global.presetFilterType === 'all' ? 'bg-[var(--accent-main)] text-white' : 'hover:bg-[var(--bg-hover)] text-[var(--text-main)]'">
+                <span>📚 全部显示</span>
+            </button>
+
+            <!-- 全局目录 -->
+            <button @click="$store.global.presetFilterType='global'"
+                class="w-full text-left px-3 py-2 rounded text-sm flex justify-between items-center transition-colors"
+                :class="$store.global.presetFilterType === 'global' ? 'bg-blue-600 text-white' : 'hover:bg-[var(--bg-hover)] text-[var(--text-main)]'">
+                <span>🌐 全局目录</span>
+                <span class="text-xs opacity-60">presets/</span>
+            </button>
+
+            <!-- 资源绑定 -->
+            <button @click="$store.global.presetFilterType='resource'"
+                class="w-full text-left px-3 py-2 rounded text-sm flex justify-between items-center transition-colors"
+                :class="$store.global.presetFilterType === 'resource' ? 'bg-green-600 text-white' : 'hover:bg-[var(--bg-hover)] text-[var(--text-main)]'">
+                <span>📁 资源绑定</span>
+                <span class="text-xs opacity-60">res/.../presets</span>
+            </button>
+        </div>
+
+        <div class="mt-auto p-4 border-t border-[var(--border-main)] text-xs text-[var(--text-dim)]">
+            提示: 拖拽 .json 预设文件到右侧网格区域即可上传到全局目录。
+        </div>
+    </div>
+
+    <!-- === 模式 4: 扩展脚本侧边栏 (Regex & Scripts & Quick Replies) === -->
     <div x-show="['regex', 'scripts', 'quick_replies'].includes(currentMode) && visibleSidebar"
         class="flex-1 flex flex-col overflow-hidden bg-[var(--bg-panel)]" x-data>
         <div class="p-4 space-y-2">

@@ -22,11 +22,12 @@ export async function getCardMetadata(id) {
 }
 
 // 获取角色卡详情 (包含 UI 数据)
-export async function getCardDetail(id) {
+export async function getCardDetail(id, options = {}) {
+    const payload = (id && typeof id === 'object' && !Array.isArray(id)) ? id : { id, ...options };
     const res = await fetch('/api/get_card_detail', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id })
+        body: JSON.stringify(payload)
     });
     return res.json();
 }

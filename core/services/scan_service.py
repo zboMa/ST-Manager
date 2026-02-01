@@ -76,7 +76,8 @@ def start_fs_watcher():
             request_scan(reason=f"{event.event_type}:{os.path.basename(event.src_path)}")
 
     observer = Observer()
-    observer.schedule(Handler(), CARDS_FOLDER, recursive=True)
+    watch_path = os.fspath(CARDS_FOLDER)
+    observer.schedule(Handler(), watch_path, recursive=True)
     observer.daemon = True
     observer.start()
     logger.info("File system watcher (watchdog) started.")

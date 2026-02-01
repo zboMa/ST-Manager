@@ -11,6 +11,7 @@ export default function settingsModal() {
     return {
         // === 本地状态 ===
         activeSettingTab: 'general',
+        allowedAbsRootsText: '',
 
         get settingsForm() { return this.$store.global.settingsForm; },
         get showSettingsModal() { 
@@ -70,13 +71,26 @@ export default function settingsModal() {
         init() {
             // 设置数据直接绑定到 $store.global.settingsForm
             // 无需本地 duplicate
+            this.$watch('showSettingsModal', (val) => {
+                if (val) {
+                    const roots = this.settingsForm.allowed_abs_resource_roots || [];
+                    this.allowedAbsRootsText = Array.isArray(roots) ? roots.join('\n') : String(roots || '');
+                }
+            });
         },
 
         openSettings() {
+            const roots = this.settingsForm.allowed_abs_resource_roots || [];
+            this.allowedAbsRootsText = Array.isArray(roots) ? roots.join('\n') : String(roots || '');
             this.showSettingsModal = true;
         },
 
         saveSettings(closeModal = true) {
+            const roots = (this.allowedAbsRootsText || '')
+                .split(/[\r\n,]+/)
+                .map(s => s.trim())
+                .filter(Boolean);
+            this.settingsForm.allowed_abs_resource_roots = roots;
             // 调用 Store 的 Action
             this.$store.global.saveSettings(closeModal)
                 .then(res => {
@@ -141,6 +155,147 @@ export default function settingsModal() {
                 if(res.success) alert(res.msg);
                 else alert("清空失败: " + res.msg);
             });
+        },
+
+        // === SillyTavern 同步功能 ===
+        
+        stPathStatus: '',
+        stPathValid: false,
+        stResources: {},
+        syncing: false,
+        syncStatus: '',
+        syncSuccess: false,
+
+        getResourceLabel(type) {
+            const labels = {
+                'characters': '🎴 角色卡',
+                'worlds': '📚 世界书',
+                'presets': '📝 预设',
+                'regex': '🔧 正则脚本',
+                'quick_replies': '💬 快速回复',
+                'scripts': '📜 ST脚本'
+            };
+            return labels[type] || type;
+        },
+
+        async detectSTPath() {
+            try {
+                this.stPathStatus = '正在探测...';
+                const resp = await fetch('/api/st/detect_path');
+                const data = await resp.json();
+                
+                if (data.success && data.path) {
+                    this.$store.global.settingsForm.st_data_dir = data.path;
+                    this.stPathStatus = `✓ 探测到路径: ${data.path}`;
+                    this.stPathValid = true;
+                    await this.validateSTPath();
+                } else {
+                    this.stPathStatus = '未能自动探测到 SillyTavern 安装路径，请手动配置';
+                    this.stPathValid = false;
+                }
+            } catch (err) {
+                this.stPathStatus = '探测失败: ' + err.message;
+                this.stPathValid = false;
+            }
+        },
+
+        async validateSTPath() {
+            const path = this.$store.global.settingsForm.st_data_dir;
+            if (!path) {
+                this.stPathStatus = '请输入或探测路径';
+                this.stPathValid = false;
+                this.stResources = {};
+                return;
+            }
+            
+            try {
+                this.stPathStatus = '正在验证...';
+                const resp = await fetch('/api/st/validate_path', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ path })
+                });
+                const data = await resp.json();
+                
+                if (data.success && data.valid) {
+                    this.stPathStatus = '✓ 路径有效';
+                    this.stPathValid = true;
+                    this.stResources = data.resources || {};
+                } else {
+                    this.stPathStatus = '✗ 路径无效或不是 SillyTavern 安装目录';
+                    this.stPathValid = false;
+                    this.stResources = {};
+                }
+            } catch (err) {
+                this.stPathStatus = '验证失败: ' + err.message;
+                this.stPathValid = false;
+                this.stResources = {};
+            }
+        },
+
+        async syncFromST(resourceType) {
+            if (this.syncing) return;
+            
+            this.syncing = true;
+            this.syncStatus = `正在同步 ${this.getResourceLabel(resourceType)}...`;
+            this.syncSuccess = false;
+            
+            try {
+                const resp = await fetch('/api/st/sync', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ resource_type: resourceType })
+                });
+                const data = await resp.json();
+                
+                if (data.success) {
+                    const result = data.result;
+                    this.syncStatus = `✓ 同步完成: ${result.success} 个成功, ${result.failed} 个失败`;
+                    this.syncSuccess = result.failed === 0;
+                } else {
+                    this.syncStatus = '✗ 同步失败: ' + (data.error || '未知错误');
+                    this.syncSuccess = false;
+                }
+            } catch (err) {
+                this.syncStatus = '✗ 同步失败: ' + err.message;
+                this.syncSuccess = false;
+            } finally {
+                this.syncing = false;
+            }
+        },
+
+        async syncAllFromST() {
+            if (this.syncing) return;
+            
+            const types = ['characters', 'worlds', 'presets', 'regex', 'quick_replies'];
+            let totalSuccess = 0;
+            let totalFailed = 0;
+            
+            this.syncing = true;
+            
+            for (const type of types) {
+                this.syncStatus = `正在同步 ${this.getResourceLabel(type)}...`;
+                
+                try {
+                    const resp = await fetch('/api/st/sync', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ resource_type: type })
+                    });
+                    const data = await resp.json();
+                    
+                    if (data.success) {
+                        totalSuccess += data.result.success;
+                        totalFailed += data.result.failed;
+                    }
+                } catch (err) {
+                    totalFailed++;
+                }
+            }
+            
+            this.syncStatus = `✓ 全部同步完成: ${totalSuccess} 个成功, ${totalFailed} 个失败`;
+            this.syncSuccess = totalFailed === 0;
+            this.syncing = false;
         }
     }
 }

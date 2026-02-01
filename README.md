@@ -26,6 +26,9 @@ ST-Manager 是一款专为 SillyTavern AI 聊天程序设计的资源可视化�
 - 📦 **版本管理** - 支持角色卡 Bundle 多版本管理
 - 🏷️ **标签系统** - 强大的标签过滤和批量标签管理
 - 🔍 **智能搜索** - 支持名称、文件名、标签、创作者等多维度搜索
+- 📝 **预设管理** - 管理 SillyTavern 生成参数预设（JSON）并支持上传/查看
+- 🔗 **酒馆资源同步** - 从本地 SillyTavern 读取并同步角色卡、世界书、预设、正则、快速回复
+- 🧩 **正则汇总** - 支持读取全局正则与预设绑定正则并汇总展示
 
 ---
 
@@ -41,7 +44,7 @@ ST-Manager 是一款专为 SillyTavern AI 聊天程序设计的资源可视化�
 1. **克隆仓库**
 
 ```bash
-git clone https://github.com/yourusername/st-manager.git
+git clone https://github.com/Dadihu123/st-manager.git
 cd st-manager
 ```
 
@@ -102,6 +105,7 @@ ST-Manager/
 │   │       ├── resources.py  # 资源 API
 │   │       ├── automation.py # 自动化 API
 │   │       └── extensions.py # 扩展 API
+│   │       └── presets.py    # 预设 API
 │   │
 │   ├── services/              # 业务服务层
 │   │   ├── scan_service.py   # 文件扫描服务
@@ -137,6 +141,7 @@ ST-Manager/
 │   │   ├── grid_cards.html
 │   │   ├── grid_wi.html
 │   │   └── grid_extensions.html
+│   │   └── grid_presets.html
 │   └── modals/               # 模态框模板
 │       ├── detail_card.html
 │       ├── detail_wi_fullscreen.html
@@ -151,6 +156,7 @@ ST-Manager/
 │   │   └── modules/
 │   ├── js/                   # JavaScript 文件
 │   │   └── utils/
+│   │   └── components/presetGrid.js
 │   └── lib/                  # 第三方库
 │       ├── alpine.js
 │       ├── tailwindcss.js
@@ -167,6 +173,7 @@ ST-Manager/
     │   ├── characters/      # 角色卡目录
     │   ├── lorebooks/       # 世界书目录
     │   └── extensions/      # 扩展脚本
+    │   └── presets/         # 预设目录
     └── temp/                # 临时文件
 ```
 
@@ -196,8 +203,25 @@ ST-Manager/
   "regex_dir": "data/library/extensions/regex",
   "scripts_dir": "data/library/extensions/tavern_helper",
   "quick_replies_dir": "data/library/extensions/quick-replies",
+  "presets_dir": "data/library/presets",
   "resources_dir": "data/assets/card_assets"
 }
+```
+
+### SillyTavern 本地路径配置
+
+```json
+{
+  "st_url": "http://127.0.0.1:8000",
+  "st_data_dir": "",
+  "st_auth_type": "basic",
+  "st_username": "",
+  "st_password": "",
+  "st_proxy": ""
+}
+```
+
+`st_data_dir` 留空时会自动探测常见安装路径（Windows: D:\SillyTavern / E:\SillyTavern 等）。
 ```
 
 ### SillyTavern 集成
@@ -242,9 +266,19 @@ ST-Manager/
 
 ```json
 {
-  "enable_auto_scan": true
+  "enable_auto_scan": true,
+  "png_deterministic_sort": false,
+  "allowed_abs_resource_roots": [],
+  "wi_preview_limit": 300,
+  "wi_preview_entry_max_chars": 2000
 }
 ```
+
+#### 说明
+- `png_deterministic_sort`：是否对 PNG 元数据进行确定性排序（默认关闭，避免改变外部工具的字节级行为）
+- `allowed_abs_resource_roots`：允许访问的绝对资源目录白名单（用于资源文件列表接口）
+- `wi_preview_limit`：世界书详情预览最大条目数（0 表示不限制）
+- `wi_preview_entry_max_chars`：世界书单条内容预览最大字符数（0 表示不截断）
 
 ---
 
@@ -293,6 +327,8 @@ ST-Manager/
 - 📤 导出世界书为独立 JSON 文件
 - 🔗 与角色卡关联显示
 - 🔄 一键整理资源目录结构
+- ⚡ 大型世界书预览优化：详情弹窗默认预览前 300 条，避免卡死（可手动加载全部）
+- 🧹 全局列表去重：自动剔除与内嵌世界书内容重复的条目，避免混杂展示
 
 ---
 
@@ -396,6 +432,19 @@ ST-Manager 内置强大的规则引擎，支持基于条件的自动化任务执
 - 快速回复模板管理
 - 支持分类和搜索
 
+#### 预设（Presets）
+- 管理生成参数预设（JSON）
+- 支持拖拽上传、查看与基础信息展示
+
+### SillyTavern 本地资源读取与同步
+
+在设置 → 连接与服务中配置 SillyTavern 安装目录，可执行：
+
+- 🔍 自动探测本地 SillyTavern 路径
+- 📊 显示检测到的资源数量
+- 🔄 一键同步角色卡、世界书、预设、正则脚本、快速回复到 ST-Manager
+- 🔧 正则同步会导出 settings.json 中的全局正则到本地 regex 目录（以 `global__*.json` 命名）
+
 ---
 
 ### 缓存与性能优化
@@ -498,8 +547,16 @@ Content-Type: application/json
 {
   "id": "world_info_id",
   "source_type": "global",
-  "file_path": "/path/to/file.json"
+  "file_path": "/path/to/file.json",
+  "preview_limit": 300,
+  "force_full": false
 }
+```
+
+### SillyTavern 正则汇总 API
+
+```
+GET /api/st/regex
 ```
 
 ### 自动化 API

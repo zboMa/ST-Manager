@@ -15,7 +15,7 @@ from core.data.db_session import init_database, close_connection, backfill_wi_me
 from core.services.scan_service import start_background_scanner
 
 # === API 蓝图 ===
-from core.api.v1 import cards, world_info, system, resources, automation, extensions
+from core.api.v1 import cards, world_info, system, resources, automation, extensions, presets, st_sync
 from core.api import views
 
 logger = logging.getLogger(__name__)
@@ -44,6 +44,8 @@ def create_app():
     app.register_blueprint(resources.bp)   # 静态资源服务 (图片/缩略图)
     app.register_blueprint(automation.bp)  # 自动化任务管理
     app.register_blueprint(extensions.bp)  # 扩展脚本管理
+    app.register_blueprint(presets.bp)     # 预设管理
+    app.register_blueprint(st_sync.bp)     # SillyTavern 资源同步
     
     # 2. 页面视图
     app.register_blueprint(views.bp)       # 前端页面入口

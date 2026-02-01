@@ -15,7 +15,7 @@ from flask import Blueprint, request, jsonify
 # === 基础设施 ===
 from core.config import (
     CARDS_FOLDER, DATA_DIR, BASE_DIR, TRASH_FOLDER,
-    load_config, save_config
+    load_config, save_config, get_cards_folder
 )
 from core.context import ctx
 from core.data.ui_store import load_ui_data, save_ui_data, UI_DATA_FILE
@@ -25,6 +25,7 @@ from core.consts import SIDECAR_EXTENSIONS, RESERVED_RESOURCE_NAMES
 from core.services.scan_service import request_scan, suppress_fs_events
 from core.services.cache_service import schedule_reload, invalidate_wi_list_cache, update_card_cache
 from core.services.card_service import resolve_ui_key
+from core.services.st_client import refresh_st_client
 
 # === 工具函数 ===
 from core.utils.filesystem import (
@@ -53,23 +54,17 @@ def api_scan_now():
 
 @bp.route('/api/save_settings', methods=['POST'])
 def api_save_settings():
-    global CARDS_FOLDER
     try:
         new_config = request.json
         save_config(new_config)
-        # 更新全局变量 CARDS_FOLDER
-        raw_path = new_config.get('cards_dir', 'cards')
-        if os.path.isabs(raw_path):
-            new_full_path = raw_path
-        else:
-            new_full_path = os.path.join(BASE_DIR, raw_path)
-        # 检查路径是否存在，不存在则尝试创建
+        refresh_st_client()
+        # 确保新卡片目录存在（使用动态路径解析）
+        new_full_path = get_cards_folder()
         if not os.path.exists(new_full_path):
             try:
                 os.makedirs(new_full_path)
             except Exception as e:
                 return jsonify({"success": False, "msg": f"路径不存在且无法创建: {str(e)}"})
-        CARDS_FOLDER = new_full_path
 
         # 处理资源目录配置
         resources_dir = new_config.get('resources_dir', 'resources')
