@@ -9,6 +9,7 @@ from flask import Flask
 # === 基础设施 ===
 from core.config import INTERNAL_DIR, BASE_DIR, TEMP_DIR
 from core.context import ctx
+from core.auth import init_auth
 
 # === 数据与服务 ===
 from core.data.db_session import init_database, close_connection, backfill_wi_metadata
@@ -49,6 +50,9 @@ def create_app():
     
     # 2. 页面视图
     app.register_blueprint(views.bp)       # 前端页面入口
+    
+    # 3. 初始化外网访问认证
+    init_auth(app)
     
     return app
 

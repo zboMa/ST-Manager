@@ -111,6 +111,9 @@ export function initState() {
             allowed_abs_resource_roots: [],
             wi_preview_limit: 300,
             wi_preview_entry_max_chars: 2000,
+            auth_username: '',
+            auth_password: '',
+            auth_trusted_ips: [],
         },
 
         // === 集中管理的视图状态 ===

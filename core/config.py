@@ -80,6 +80,15 @@ DEFAULT_CONFIG = {
     # preview_entry_max_chars: 单条内容最大字符数（0 表示不截断）
     "wi_preview_limit": 300,
     "wi_preview_entry_max_chars": 2000,
+
+    # 外网访问身份验证（本地/局域网访问不受限制）
+    # 仅当 auth_username 和 auth_password 都设置时才启用
+    "auth_username": "",
+    "auth_password": "",
+    # IP 白名单：这些 IP 无需登录即可访问
+    # 支持格式：单个 IP ("192.168.1.100")、CIDR ("192.168.1.0/24")、通配符 ("192.168.*.*")
+    # 默认已包含 127.0.0.1 和 ::1 (本机)，无需手动添加
+    "auth_trusted_ips": [],
 }
 
 def load_config():

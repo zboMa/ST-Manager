@@ -4,6 +4,16 @@ import threading
 import webbrowser
 import platform
 
+# 设置 UTF-8 输出编码，支持 emoji 显示（兼容 Windows）
+if sys.platform == 'win32':
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+        sys.stderr.reconfigure(encoding='utf-8')
+    except AttributeError:
+        import codecs
+        sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer, 'strict')
+        sys.stderr = codecs.getwriter('utf-8')(sys.stderr.buffer, 'strict')
+
 # 确保在 PyInstaller 打包环境下也能正确找到资源
 if getattr(sys, 'frozen', False):
     os.chdir(os.path.dirname(sys.executable))
