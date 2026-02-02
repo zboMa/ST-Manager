@@ -113,43 +113,74 @@ def _parse_preset_file(file_path, filename):
         
         preset_id = os.path.splitext(filename)[0]
         
-        # 提取基本信息
+        # 1. 提取基本信息
         name = data.get('name') or data.get('title') or preset_id
         description = data.get('description') or data.get('note') or ''
         
-        # 提取关键参数
-        temperature = data.get('temperature') or data.get('temp')
-        max_tokens = data.get('max_tokens') or data.get('openai_max_tokens') or data.get('max_length')
-        top_p = data.get('top_p')
-        top_k = data.get('top_k')
-        frequency_penalty = data.get('frequency_penalty') or data.get('freq_pen')
-        presence_penalty = data.get('presence_penalty') or data.get('pres_pen')
-        
-        # 提取 prompts
+        # 2. 提取完整采样参数 (Samplers)
+        samplers = {
+            'temperature': data.get('temperature'),
+            'max_tokens': data.get('max_tokens') or data.get('openai_max_tokens') or data.get('max_length'),
+            'min_length': data.get('min_length'),
+            'top_p': data.get('top_p'),
+            'top_k': data.get('top_k'),
+            'top_a': data.get('top_a'),              # ST 特有
+            'min_p': data.get('min_p'),              # ST 特有
+            'tail_free_sampling': data.get('tfs'),   # TFS
+            'repetition_penalty': data.get('repetition_penalty') or data.get('rep_pen'),
+            'repetition_penalty_range': data.get('repetition_penalty_range'),
+            'frequency_penalty': data.get('frequency_penalty') or data.get('freq_pen'),
+            'presence_penalty': data.get('presence_penalty') or data.get('pres_pen'),
+            'typical_p': data.get('typical'),        # Typical Sampling
+            'temperature_last': data.get('temperature_last', False), # 采样顺序
+            'mirostat_mode': data.get('mirostat_mode'),
+            'mirostat_tau': data.get('mirostat_tau'),
+            'mirostat_eta': data.get('mirostat_eta'),
+        }
+
+        # 3. 提取上下文与输出配置 (Config)
+        config = {
+            'context_length': data.get('openai_max_context') or data.get('context_length'),
+            'streaming': data.get('stream_openai', False),
+            'wrap_in_quotes': data.get('wrap_in_quotes', False),
+            'names_behavior': data.get('names_behavior'), # 0=Default, 1=Force, etc.
+            'show_thoughts': data.get('show_thoughts', True), # CoT
+            'reasoning_effort': data.get('reasoning_effort'), # O1 parameters
+            'seed': data.get('seed', -1),
+        }
+
+        # 4. 提取格式化模板 (Formatting)
+        formatting = {
+            'system_prompt_marker': data.get('use_makersuite_sysprompt', True), # 特殊开关
+            'wi_format': data.get('wi_format'),
+            'scenario_format': data.get('scenario_format'),
+            'personality_format': data.get('personality_format'),
+            'assistant_prefill': data.get('assistant_prefill'),
+            'assistant_impersonation': data.get('assistant_impersonation'),
+            'impersonation_prompt': data.get('impersonation_prompt'),
+            'new_chat_prompt': data.get('new_chat_prompt'),
+            'continue_nudge_prompt': data.get('continue_nudge_prompt'),
+            'bias_preset': data.get('bias_preset_selected'),
+        }
+
+        # 5. 提取 Prompts (使用之前的标准化逻辑)
         prompts = _normalize_prompts(data)
         prompt_count = len(prompts) if isinstance(prompts, list) else 0
         
-        # 提取绑定的正则（向后兼容）
+        # 6. 提取扩展
         regexes = _extract_regex_from_preset(data)
-        
-        # 获取文件修改时间
-        mtime = os.path.getmtime(file_path)
-        file_size = os.path.getsize(file_path)
-        
-        # 提取extensions数据
         extensions = data.get('extensions', {})
         regex_scripts = extensions.get('regex_scripts', [])
         tavern_helper = extensions.get('tavern_helper', {})
         
-        # 计算扩展数量
+        # 计算统计数据
         regex_count = len(regex_scripts) if isinstance(regex_scripts, list) else 0
         script_count = 0
         if isinstance(tavern_helper, dict) and 'scripts' in tavern_helper:
             script_count = len(tavern_helper['scripts']) if isinstance(tavern_helper['scripts'], list) else 0
-        elif isinstance(tavern_helper, list):
-            script_block = next((item for item in tavern_helper if isinstance(item, list) and len(item) > 1 and item[0] == "scripts"), None)
-            if script_block:
-                script_count = len(script_block[1]) if isinstance(script_block[1], list) else 0
+        
+        mtime = os.path.getmtime(file_path)
+        file_size = os.path.getsize(file_path)
         
         return {
             'summary': {
@@ -157,12 +188,11 @@ def _parse_preset_file(file_path, filename):
                 'name': name,
                 'description': description[:200] if description else '',
                 'filename': filename,
-                'temperature': temperature,
-                'max_tokens': max_tokens,
+                'temperature': samplers['temperature'],
+                'max_tokens': samplers['max_tokens'],
                 'prompt_count': prompt_count,
                 'regex_count': regex_count,
                 'script_count': script_count,
-                'extension_count': regex_count + script_count,
                 'mtime': mtime,
                 'file_size': file_size,
             },
@@ -173,31 +203,27 @@ def _parse_preset_file(file_path, filename):
                 'filename': filename,
                 'path': os.path.relpath(file_path, BASE_DIR),
                 
-                # 模型参数
-                'temperature': temperature,
-                'max_tokens': max_tokens,
-                'top_p': top_p,
-                'top_k': top_k,
-                'frequency_penalty': frequency_penalty,
-                'presence_penalty': presence_penalty,
+                # 分组数据
+                'samplers': samplers,
+                'config': config,
+                'formatting': formatting,
                 
-                # 提示词相关
+                # 列表数据
                 'prompts': prompts,
-                'prompt_count': prompt_count,
-                
-                # 绑定的正则（向后兼容）
-                'regexes': regexes,
-                'regex_count': regex_count,
-                
-                # 完整的extensions数据（供高级扩展编辑器使用）
                 'extensions': extensions,
-                'regex_scripts': regex_scripts,
+                
+                # 兼容旧前端字段 (Flattened)
+                'temperature': samplers['temperature'],
+                'max_tokens': samplers['max_tokens'],
+                'top_p': samplers['top_p'],
+                'top_k': samplers['top_k'],
+                'prompt_count': prompt_count,
+                'regex_count': regex_count,
                 'script_count': script_count,
                 
-                # 原始数据 (供编辑器使用)
+                # 原始数据
                 'raw_data': data,
                 
-                # 文件信息
                 'mtime': mtime,
                 'file_size': file_size,
             }

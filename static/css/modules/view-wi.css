@@ -909,7 +909,26 @@ html.light-mode .wi-reader-entry:hover {
 
 .wi-reader-entry.active {
   border-color: var(--accent-main);
-  box-shadow: 0 0 0 2px var(--accent-faint), 0 14px 28px rgba(var(--accent-main-rgb), 0.18)
+  box-shadow: 0 0 0 3px var(--accent-faint), 0 16px 32px rgba(var(--accent-main-rgb), 0.25);
+  transform: translateY(-2px) scale(1.005);
+  z-index: 10;
+  background: color-mix(in srgb, var(--bg-panel), var(--accent-main) 3%);
+  animation: wiReaderEntryActive 0.3s ease-out
+}
+
+@keyframes wiReaderEntryActive {
+  0% {
+    box-shadow: 0 0 0 0 var(--accent-faint), 0 0 0 rgba(var(--accent-main-rgb), 0);
+    transform: translateY(0) scale(1)
+  }
+  50% {
+    box-shadow: 0 0 0 4px var(--accent-faint), 0 8px 16px rgba(var(--accent-main-rgb), 0.15);
+    transform: translateY(-1px) scale(1.002)
+  }
+  100% {
+    box-shadow: 0 0 0 3px var(--accent-faint), 0 16px 32px rgba(var(--accent-main-rgb), 0.25);
+    transform: translateY(-2px) scale(1.005)
+  }
 }
 
 .wi-reader-entry-status {
