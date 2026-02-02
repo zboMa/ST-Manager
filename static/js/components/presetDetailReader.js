@@ -129,7 +129,7 @@ export default function presetDetailReader() {
             if (!prompts || !Array.isArray(prompts)) return [];
             return prompts.map((p, idx) => ({
                 ...p,
-                key: p.key || `prompt-${idx}`,
+                key: p.identifier || p.key || `prompt-${idx}`,
                 meta: p.meta || [],
                 enabled: p.enabled !== false
             }));

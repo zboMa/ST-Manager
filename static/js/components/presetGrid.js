@@ -47,10 +47,8 @@ export default function presetGrid() {
                 this.fetchItems();
             }
 
-            // 监听从资源目录打开预设的事件
-            window.addEventListener('open-preset-reader', (e) => {
-                this.openPresetDetail(e.detail);
-            });
+            // presetDetailReader.js 会处理 open-preset-reader 事件
+            // 本组件只负责触发事件，不监听
         },
 
         fetchItems() {
@@ -131,8 +129,8 @@ export default function presetGrid() {
         },
 
         // 新三栏阅览界面方法
-        async openPresetDetail(item) {
-            // 触发全局预设阅读器事件
+        openPresetDetail(item) {
+            // 触发事件让 presetDetailReader.js 处理详情显示
             window.dispatchEvent(new CustomEvent('open-preset-reader', {
                 detail: item
             }));
