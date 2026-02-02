@@ -1194,7 +1194,11 @@ def api_import_from_url():
         
         # 确定基础文件名
         final_filename = os.path.basename(temp_path) # fallback
-        if char_name:
+        
+        # 检查是否启用自动重命名
+        auto_rename = current_config.get('auto_rename_on_import', True)
+        
+        if char_name and auto_rename:
             safe_name = sanitize_filename(char_name)
             # 动态获取后缀，而不是硬编码 .png，兼容 .json 导入
             _, ext = os.path.splitext(temp_path)
@@ -3097,9 +3101,12 @@ def api_upload_commit():
             # 默认使用原文件名
             target_filename = filename
             
+            # 检查是否启用自动重命名
+            auto_rename = current_config.get('auto_rename_on_import', True)
+            
             # 读取元数据
             info = extract_card_info(src_path)
-            if info:
+            if info and auto_rename:
                 data_block = info.get('data', {}) if 'data' in info else info
                 c_name = info.get('name') or data_block.get('name')
                 

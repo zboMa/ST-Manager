@@ -114,6 +114,7 @@ export function initState() {
             auth_username: '',
             auth_password: '',
             auth_trusted_ips: [],
+            auto_rename_on_import: true,
         },
 
         // === 集中管理的视图状态 ===
