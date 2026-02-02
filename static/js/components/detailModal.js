@@ -93,6 +93,7 @@ export default function detailModal() {
         resourceRegex: [],
         resourceScripts: [],
         resourceQuickReplies: [],
+        resourcePresets: [],
         // 皮肤与版本
         skinImages: [],
         currentSkinIndex: -1,
@@ -194,6 +195,8 @@ export default function detailModal() {
             this.resourceLorebooks = [];
             this.resourceRegex = [];
             this.resourceScripts = [];
+            this.resourceQuickReplies = [];
+            this.resourcePresets = [];
             this.currentSkinIndex = -1;
 
             if (!folderName) return;
@@ -206,6 +209,7 @@ export default function detailModal() {
                     this.resourceRegex = res.files.regex || [];
                     this.resourceScripts = res.files.scripts || [];
                     this.resourceQuickReplies = res.files.quick_replies || [];
+                    this.resourcePresets = res.files.presets || [];
                 }
             }).catch(err => {
                 console.error("Failed to load resources:", err);
@@ -233,6 +237,37 @@ export default function detailModal() {
                             fileData: fileContent, // JSON 对象
                             filePath: fileItem.path, // 文件路径 (用于保存)
                             type: type // 'regex' | 'script'
+                        }
+                    }));
+                } else {
+                    alert("无法读取文件内容: " + res.msg);
+                }
+            }).catch(err => {
+                this.$store.global.isLoading = false;
+                alert("读取请求失败: " + err);
+            });
+        },
+
+        // 打开预设文件
+        openResourcePreset(fileItem) {
+            // fileItem 是 API 返回的对象: { name: "abc.json", path: "data/..." }
+            if (!fileItem || !fileItem.path) return;
+
+            this.$store.global.isLoading = true;
+
+            // 1. 读取文件内容
+            readFileContent({ path: fileItem.path }).then(res => {
+                this.$store.global.isLoading = false;
+                
+                if (res.success) {
+                    const fileContent = res.data;
+                    
+                    // 2. 触发事件打开预设详情
+                    window.dispatchEvent(new CustomEvent('open-preset-detail', {
+                        detail: {
+                            presetData: fileContent,
+                            filePath: fileItem.path,
+                            source: 'resource'
                         }
                     }));
                 } else {

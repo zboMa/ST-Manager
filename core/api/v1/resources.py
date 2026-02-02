@@ -265,6 +265,7 @@ def api_upload_card_resource():
         sub_dir = "" # 默认根目录
         
         is_lorebook = False
+        is_preset = False
         
         # 检测 JSON 是否为世界书
         if ext == '.json':
@@ -296,7 +297,12 @@ def api_upload_card_resource():
                 elif (isinstance(data, dict) and 'qrList' in data):
                     sub_dir = "extensions/quick-replies"
                 
-                # D. 兜底: 无法识别的 JSON 放在根目录，或者你可以指定一个 'misc' 目录
+                # E. 预设文件特征: 包含 temperature, max_tokens, prompt_order 等预设特有字段
+                elif isinstance(data, dict) and any(key in data for key in ['temperature', 'max_tokens', 'openai_max_tokens', 'max_length', 'prompt_order', 'prompts']):
+                    sub_dir = "presets"
+                    is_preset = True
+                
+                # F. 兜底: 无法识别的 JSON 放在根目录，或者你可以指定一个 'misc' 目录
                 else:
                     sub_dir = "" 
             except Exception as e:
@@ -325,6 +331,7 @@ def api_upload_card_resource():
             "msg": f"已存入 {sub_dir if sub_dir else '根目录'}",
             "filename": os.path.basename(save_path),
             "is_lorebook": is_lorebook,
+            "is_preset": is_preset,
             "category": sub_dir
         })
 
@@ -425,7 +432,8 @@ def api_list_resource_files():
             "lorebooks": [],
             "regex": [],
             "scripts": [],
-            "quick_replies": []
+            "quick_replies": [],
+            "presets": []
         }
 
         # 1. 扫描根目录获取皮肤 (Skins)
@@ -439,13 +447,14 @@ def api_list_resource_files():
                         result["skins"].append(f) # 皮肤只存文件名，前端自己拼 URL
         except: pass
 
-        # 2. 扫描子目录获取逻辑文件 (Lorebooks, Regex, Scripts)
+        # 2. 扫描子目录获取逻辑文件 (Lorebooks, Regex, Scripts, Presets)
         # 定义子目录映射关系
         sub_map = {
             'lorebooks': 'lorebooks',
             'regex': 'extensions/regex',
             'scripts': 'extensions/tavern_helper',
-            'quick_replies': 'extensions/quick-replies'
+            'quick_replies': 'extensions/quick-replies',
+            'presets': 'presets'
         }
 
         for category, sub_name in sub_map.items():
@@ -466,7 +475,7 @@ def api_list_resource_files():
         
         # 排序
         result["skins"].sort()
-        for key in ["lorebooks", "regex", "scripts"]:
+        for key in ["lorebooks", "regex", "scripts", "quick_replies", "presets"]:
             result[key].sort(key=lambda x: x["name"])
 
         return jsonify({"success": True, "files": result})

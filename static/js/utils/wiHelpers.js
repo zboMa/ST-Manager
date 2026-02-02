@@ -136,19 +136,24 @@ export const wiHelpers = {
             path = contextItem.path || "";
             name = contextItem.name || "World Info";
 
-            // 尝试获取内容
-            // 1. 如果在编辑器中，且有 _getAutoSavePayload 方法
-            if (typeof this._getAutoSavePayload === 'function') {
-                const payload = this._getAutoSavePayload();
-                content = payload.content;
-            } 
-            // 2. 如果在阅览室 (DetailPopup) 中，且已经加载了 wiData
-            else if (this.wiData) {
-                // 重新包装一下以符合 V3 格式
-                content = {
-                    ...this.wiData,
-                    entries: this.wiEntries // 使用当前的 entry 数组
-                };
+            // 如果当前处于阅览模式(wiDetailPopup) 且数据被截断(isTruncated)
+            // 则禁止从前端构建 content，强制 content=null，让后端执行文件级复制
+            if (this.isTruncated || this.isContentTruncated) {
+                console.log("[Snapshot] Detected truncation, forcing file-level backup.");
+                content = null; 
+            } else {
+                // 1. 如果在编辑器中，且有 _getAutoSavePayload 方法
+                if (typeof this._getAutoSavePayload === 'function') {
+                    const payload = this._getAutoSavePayload();
+                    content = payload.content;
+                } 
+                // 2. 如果在阅览室 (DetailPopup) 中，且已经加载了 wiData
+                else if (this.wiData) {
+                    content = {
+                        ...this.wiData,
+                        entries: this.wiEntries 
+                    };
+                }
             }
         }
 
@@ -168,8 +173,6 @@ export const wiHelpers = {
 
         apiCreateSnapshot({
             id: targetId,
-            type: 'lorebook', // 无论前端识别为什么，后端 type='lorebook' 能处理 generic path，但为了准确：
-                              // 如果是 card context，还是传 card 比较好
             type: (type === 'card' || type === 'embedded') ? 'card' : 'lorebook',
             file_path: path,
             label: label,
@@ -195,11 +198,6 @@ export const wiHelpers = {
         const label = prompt("请输入关键节点名称 (例如: 'v1.0'):");
         if (label === null) return;
 
-        // 这里我们手动构造参数调用 apiCreateSnapshot，复用大部分逻辑
-        // 为了避免复制粘贴 createSnapshot 的上下文判断代码，
-        // 我们可以把 createSnapshot 改造成接受 label 参数，或者在这里重新判断一次上下文。
-        // 为了稳健，这里重新判断一次上下文 (复用 createSnapshot 的逻辑结构)。
-        
         let type, targetId, path, content;
 
         if (this.activeCard && this.activeCard.id && !this.showFullScreenWI) {
@@ -213,8 +211,12 @@ export const wiHelpers = {
             type = (contextItem.type === 'embedded') ? 'embedded' : 'lorebook';
             targetId = (type === 'embedded') ? contextItem.card_id : contextItem.id;
             path = contextItem.path || "";
-            if (this.showFullScreenWI && typeof this._getAutoSavePayload === 'function') {
+            if (this.isTruncated || this.isContentTruncated) {
+                content = null;
+            } else if (this.showFullScreenWI && typeof this._getAutoSavePayload === 'function') {
                 content = this._getAutoSavePayload().content;
+            } else if (this.wiData) {
+                content = { ...this.wiData, entries: this.wiEntries };
             }
         }
 

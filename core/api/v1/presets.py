@@ -129,12 +129,27 @@ def _parse_preset_file(file_path, filename):
         prompts = _normalize_prompts(data)
         prompt_count = len(prompts) if isinstance(prompts, list) else 0
         
-        # 提取绑定的正则
+        # 提取绑定的正则（向后兼容）
         regexes = _extract_regex_from_preset(data)
         
         # 获取文件修改时间
         mtime = os.path.getmtime(file_path)
         file_size = os.path.getsize(file_path)
+        
+        # 提取extensions数据
+        extensions = data.get('extensions', {})
+        regex_scripts = extensions.get('regex_scripts', [])
+        tavern_helper = extensions.get('tavern_helper', {})
+        
+        # 计算扩展数量
+        regex_count = len(regex_scripts) if isinstance(regex_scripts, list) else 0
+        script_count = 0
+        if isinstance(tavern_helper, dict) and 'scripts' in tavern_helper:
+            script_count = len(tavern_helper['scripts']) if isinstance(tavern_helper['scripts'], list) else 0
+        elif isinstance(tavern_helper, list):
+            script_block = next((item for item in tavern_helper if isinstance(item, list) and len(item) > 1 and item[0] == "scripts"), None)
+            if script_block:
+                script_count = len(script_block[1]) if isinstance(script_block[1], list) else 0
         
         return {
             'summary': {
@@ -145,7 +160,9 @@ def _parse_preset_file(file_path, filename):
                 'temperature': temperature,
                 'max_tokens': max_tokens,
                 'prompt_count': prompt_count,
-                'regex_count': len(regexes),
+                'regex_count': regex_count,
+                'script_count': script_count,
+                'extension_count': regex_count + script_count,
                 'mtime': mtime,
                 'file_size': file_size,
             },
@@ -168,9 +185,14 @@ def _parse_preset_file(file_path, filename):
                 'prompts': prompts,
                 'prompt_count': prompt_count,
                 
-                # 绑定的正则
+                # 绑定的正则（向后兼容）
                 'regexes': regexes,
-                'regex_count': len(regexes),
+                'regex_count': regex_count,
+                
+                # 完整的extensions数据（供高级扩展编辑器使用）
+                'extensions': extensions,
+                'regex_scripts': regex_scripts,
+                'script_count': script_count,
                 
                 # 原始数据 (供编辑器使用)
                 'raw_data': data,
@@ -511,4 +533,65 @@ def save_preset():
         
     except Exception as e:
         logger.error(f"Error saving preset: {e}")
+        return jsonify({"success": False, "msg": str(e)}), 500
+
+
+@bp.route('/api/presets/save-extensions', methods=['POST'])
+def save_preset_extensions():
+    """
+    保存/更新预设的extensions（正则脚本和ST脚本）
+    """
+    try:
+        data = request.json
+        preset_id = data.get('id')
+        extensions = data.get('extensions')
+        
+        if not preset_id or extensions is None:
+            return jsonify({"success": False, "msg": "缺少必要参数"})
+        
+        presets_root = _get_presets_path()
+        
+        # 解析 ID 获取文件路径
+        if preset_id.startswith('resource::'):
+            parts = preset_id.split('::', 2)
+            if len(parts) != 3:
+                return jsonify({"success": False, "msg": "Invalid preset ID format"}), 400
+            
+            _, folder, name = parts
+            cfg = load_config()
+            res_root = os.path.join(BASE_DIR, cfg.get('resources_dir', 'data/assets/card_assets'))
+            folder_abs = _safe_join(res_root, folder)
+            if not folder_abs:
+                return jsonify({"success": False, "msg": "Invalid preset ID"}), 400
+            presets_base = os.path.join(folder_abs, 'presets')
+            file_path = _safe_join(presets_base, f"{name}.json")
+        else:
+            file_path = _safe_join(presets_root, f"{preset_id}.json")
+        
+        if not file_path:
+            return jsonify({"success": False, "msg": "Invalid preset ID"}), 400
+        
+        if not os.path.exists(file_path):
+            return jsonify({"success": False, "msg": "预设文件不存在"})
+        
+        # 读取现有文件内容
+        with open(file_path, 'r', encoding='utf-8') as f:
+            preset_data = json.load(f)
+        
+        # 更新extensions字段
+        if 'extensions' not in preset_data:
+            preset_data['extensions'] = {}
+        
+        # 合并extensions数据，保留原有其他扩展
+        for key, value in extensions.items():
+            preset_data['extensions'][key] = value
+        
+        # 写回文件
+        with open(file_path, 'w', encoding='utf-8') as f:
+            json.dump(preset_data, f, ensure_ascii=False, indent=2)
+        
+        return jsonify({"success": True, "msg": "扩展已保存"})
+        
+    except Exception as e:
+        logger.error(f"Error saving preset extensions: {e}")
         return jsonify({"success": False, "msg": str(e)}), 500
