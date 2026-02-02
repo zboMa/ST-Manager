@@ -577,7 +577,7 @@ export default function detailModal() {
             const payload = {
                 id: this.activeCard.id,
                 new_filename: this.editingData.filename,
-                
+
                 // 核心数据 (Spread Clean Data)
                 ...cleanData, // 包含 name, description, first_mes, tags 等所有 V3 字段
 
@@ -585,10 +585,11 @@ export default function detailModal() {
                 ui_summary: this.editingData.ui_summary,
                 source_link: this.editingData.source_link,
                 resource_folder: this.editingData.resource_folder,
-                
+
                 // Bundle 标记
                 save_ui_to_bundle: this.activeCard.is_bundle,
-                bundle_dir: this.activeCard.is_bundle ? this.activeCard.bundle_dir : undefined
+                bundle_dir: this.activeCard.is_bundle ? this.activeCard.bundle_dir : undefined,
+                version_id: this.activeCard.is_bundle ? this.editingData.id : undefined
             };
 
             // 兼容性映射：getCleanedV3Data 返回的是 name，但 updateCard 需要 char_name
@@ -891,12 +892,12 @@ export default function detailModal() {
 
             this.activeCard.image_url = `/cards_file/${encodeURIComponent(ver.id)}`;
             this.activeCard.filename = ver.filename;
-            
+
             getCardDetail(ver.id).then(res => {
                 if (res.success && res.card) {
                     const c = res.card;
                     if (!this.activeCard.is_bundle) this.editingData.filename = c.filename;
-                    
+
                     this.editingData.id = c.id;
                     this.editingData.char_name = c.char_name;
                     this.editingData.description = c.description;
@@ -906,6 +907,10 @@ export default function detailModal() {
                     this.editingData.creator_notes = c.creator_notes;
                     this.editingData.character_book = c.character_book;
                     this.altIdx = 0;
+
+                    this.editingData.ui_summary = c.ui_summary || "";
+                    this.editingData.source_link = c.source_link || "";
+                    this.editingData.resource_folder = c.resource_folder || "";
                 }
             });
         },

@@ -9,7 +9,7 @@ from urllib.parse import quote
 # === 基础设施 (只导入配置和底层数据操作，不导入 context) ===
 from core.config import CARDS_FOLDER, DEFAULT_DB_PATH
 from core.data.db_session import execute_with_retry
-from core.data.ui_store import load_ui_data
+from core.data.ui_store import load_ui_data, get_version_remark, cleanup_stale_version_remarks, migrate_bundle_remarks_to_versions, save_ui_data
 
 logger = logging.getLogger(__name__)
 
@@ -320,6 +320,7 @@ class GlobalMetadataCache:
 
                 # 1. 加载数据
                 ui_data = load_ui_data()
+                ui_data_stale_cleaned = False
                 rows = execute_with_retry(_do_fetch_all, max_retries=5)
                 
                 raw_cards = []
@@ -364,7 +365,16 @@ class GlobalMetadataCache:
 
                 final_cards = []
                 bundles = {}
-                new_bundle_map = {} 
+                new_bundle_map = {}
+
+                old_bundle_map = dict(self.bundle_map)
+                unbundled_dirs = set(old_bundle_map.keys()) - bundle_dirs
+
+                if unbundled_dirs:
+                    for unbundled_dir in unbundled_dirs:
+                        migrated = migrate_bundle_remarks_to_versions(ui_data, unbundled_dir)
+                        if migrated > 0:
+                            ui_data_stale_cleaned = True
 
                 for card in raw_cards:
                     d = card['dir_path']
@@ -381,20 +391,39 @@ class GlobalMetadataCache:
                     # 按时间倒序，最新的为主版本
                     version_list.sort(key=lambda x: x['last_modified'], reverse=True)
                     latest_card = version_list[0]
-                    
+
                     bundle_card = latest_card.copy()
                     bundle_card['is_bundle'] = True
                     bundle_card['bundle_dir'] = dir_path
-                    bundle_card['versions'] = [
-                        {"id": v['id'], "filename": v['filename'], "last_modified": v['last_modified'], "char_version": v['char_version']} 
-                        for v in version_list
-                    ]
+
+                    bundle_card['versions'] = []
+                    for v in version_list:
+                        ver_info = {
+                            "id": v['id'],
+                            "filename": v['filename'],
+                            "last_modified": v['last_modified'],
+                            "char_version": v.get('char_version', '')
+                        }
+                        ver_remark = get_version_remark(ui_data, dir_path, v['id'])
+                        if ver_remark:
+                            ver_info['ui_summary'] = ver_remark.get('summary', '')
+                            ver_info['source_link'] = ver_remark.get('link', '')
+                            ver_info['resource_folder'] = ver_remark.get('resource_folder', '')
+                        bundle_card['versions'].append(ver_info)
+
                     # 分类为 Bundle 所在文件夹的父级
                     bundle_card['category'] = dir_path.rsplit('/', 1)[0] if '/' in dir_path else ""
-                    
+
                     self._enrich_card_ui(bundle_card, ui_data, is_bundle=True)
                     final_cards.append(bundle_card)
                     new_bundle_map[dir_path] = bundle_card['id']
+
+                    valid_version_ids = {v['id'] for v in bundle_card['versions']}
+                    if cleanup_stale_version_remarks(ui_data, dir_path, valid_version_ids):
+                        ui_data_stale_cleaned = True
+
+                if ui_data_stale_cleaned:
+                    save_ui_data(ui_data)
 
                 # 3. 统计计数和标签
                 new_global_tags = set()
@@ -459,19 +488,30 @@ class GlobalMetadataCache:
     def _enrich_card_ui(self, card, ui_data, is_bundle=False):
         """辅助函数：将 UI 数据合并到卡片对象中"""
         key = card['bundle_dir'] if is_bundle else card['id']
-        # 如果 Bundle 目录没有 UI 数据，尝试回退使用主卡片 ID
-        fallback_key = card['id'] if is_bundle else None
-        
-        ui_info = ui_data.get(key)
-        if not ui_info and fallback_key:
-            ui_info = ui_data.get(fallback_key, {})
-        if not ui_info: 
-            ui_info = {}
-            
-        card['ui_summary'] = ui_info.get('summary', '')
-        card['source_link'] = ui_info.get('link', '')
-        card['resource_folder'] = ui_info.get('resource_folder', '')
-        
+
+        ui_info = ui_data.get(key, {})
+
+        if is_bundle and ui_info:
+            cover_id = card.get('id')
+            if cover_id:
+                cover_remark = get_version_remark(ui_data, key, cover_id)
+                if cover_remark:
+                    card['ui_summary'] = cover_remark.get('summary', '')
+                    card['source_link'] = cover_remark.get('link', '')
+                    card['resource_folder'] = cover_remark.get('resource_folder', '')
+                else:
+                    card['ui_summary'] = ui_info.get('summary', '')
+                    card['source_link'] = ui_info.get('link', '')
+                    card['resource_folder'] = ui_info.get('resource_folder', '')
+            else:
+                card['ui_summary'] = ui_info.get('summary', '')
+                card['source_link'] = ui_info.get('link', '')
+                card['resource_folder'] = ui_info.get('resource_folder', '')
+        else:
+            card['ui_summary'] = ui_info.get('summary', '')
+            card['source_link'] = ui_info.get('link', '')
+            card['resource_folder'] = ui_info.get('resource_folder', '')
+
         # 预计算 URL
         mtime = int(card.get('last_modified', 0))
         encoded_id = quote(card['id'])
