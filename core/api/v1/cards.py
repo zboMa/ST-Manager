@@ -16,7 +16,8 @@ from flask import Blueprint, request, jsonify, send_from_directory
 from core.config import CARDS_FOLDER, DATA_DIR, BASE_DIR, THUMB_FOLDER, TRASH_FOLDER, DEFAULT_DB_PATH, TEMP_DIR, load_config, current_config
 from core.context import ctx
 from core.data.db_session import get_db
-from core.data.ui_store import load_ui_data, save_ui_data
+from core.data.ui_store import load_ui_data, save_ui_data, get_version_remark, set_version_remark
+from core.data.cache import GlobalMetadataCache
 from core.consts import SIDECAR_EXTENSIONS
 
 # === 核心服务 ===
@@ -526,21 +527,56 @@ def api_update_card():
 
         # 3. 始终更新 UI Data (Bundle模式下不影响文件内容)
         ui_data = load_ui_data()
-        
+        ui_changed = False
+        target_version_id = final_rel_path_id
+
         if data.get('save_ui_to_bundle') and data.get('bundle_dir'):
             ui_key = data.get('bundle_dir')
+            target_version_id = data.get('version_id', final_rel_path_id)
         else:
             ui_key = final_rel_path_id
             if raw_id != final_rel_path_id and raw_id in ui_data:
                 ui_data[final_rel_path_id] = ui_data[raw_id]
                 del ui_data[raw_id]
+                ui_changed = True
 
         if ui_key not in ui_data: ui_data[ui_key] = {}
         # 注意：如果是设为封面，前端发来的 ui_summary 可能是空的，保留原有值
-        if not force_set_cover: 
-            ui_data[ui_key]['summary'] = data.get('ui_summary', '')
-            ui_data[ui_key]['link'] = str(data.get('source_link') or '').strip()
-            ui_data[ui_key]['resource_folder'] = data.get('resource_folder', '')
+        if not force_set_cover:
+            new_summary = data.get('ui_summary', '')
+            new_link = str(data.get('source_link') or '').strip()
+            new_resource_folder = data.get('resource_folder', '')
+
+            if data.get('save_ui_to_bundle') and data.get('bundle_dir'):
+                remark_data = {
+                    'summary': new_summary,
+                    'link': new_link,
+                    'resource_folder': new_resource_folder
+                }
+                # 获取封面ID用于向后兼容
+                bundle_dir = data.get('bundle_dir')
+                cover_id = None
+                if bundle_dir and bundle_dir in ctx.cache.bundle_map:
+                    main_bundle_id = ctx.cache.bundle_map[bundle_dir]
+                    if main_bundle_id in ctx.cache.id_map:
+                        bundle_card = ctx.cache.id_map[main_bundle_id]
+                        if bundle_card.get('versions'):
+                            cover_id = bundle_card['versions'][0]['id']
+
+                if set_version_remark(ui_data, ui_key, target_version_id, remark_data, cover_id):
+                    ui_changed = True
+            else:
+                if ui_data[ui_key].get('summary', '') != new_summary:
+                    ui_data[ui_key]['summary'] = new_summary
+                    ui_changed = True
+                if ui_data[ui_key].get('link', '') != new_link:
+                    ui_data[ui_key]['link'] = new_link
+                    ui_changed = True
+                if ui_data[ui_key].get('resource_folder', '') != new_resource_folder:
+                    ui_data[ui_key]['resource_folder'] = new_resource_folder
+                    ui_changed = True
+
+        if ui_changed:
             save_ui_data(ui_data)
 
         # 4. 强制更新修改时间 & 数据库
@@ -583,9 +619,15 @@ def api_update_card():
         token_count = calculate_token_count(calc_data)
 
         # 确定 UI 数据的来源
-        ui_summary_val = ui_data.get(ui_key, {}).get('summary', '')
-        source_link_val = ui_data.get(ui_key, {}).get('link', '')
-        res_folder_val = ui_data.get(ui_key, {}).get('resource_folder', '')
+        if data.get('save_ui_to_bundle') and data.get('bundle_dir'):
+            version_remark = get_version_remark(ui_data, ui_key, target_version_id)
+            ui_summary_val = version_remark.get('summary', '')
+            source_link_val = version_remark.get('link', '')
+            res_folder_val = version_remark.get('resource_folder', '')
+        else:
+            ui_summary_val = ui_data.get(ui_key, {}).get('summary', '')
+            source_link_val = ui_data.get(ui_key, {}).get('link', '')
+            res_folder_val = ui_data.get(ui_key, {}).get('resource_folder', '')
 
         update_payload = {
             "id": final_rel_path_id,
@@ -604,7 +646,15 @@ def api_update_card():
         }
         
         # 更新单卡内存对象
-        updated_card_obj = ctx.cache.update_card_data(raw_id, update_payload)
+        # Bundle 模式下：只有保存主版本时才更新缓存，避免用非主版本的备注污染主版本
+        if data.get('save_ui_to_bundle') and data.get('bundle_dir'):
+            if raw_id == target_version_id:
+                updated_card_obj = ctx.cache.update_card_data(raw_id, update_payload)
+            else:
+                # 非主版本：不更新主版本缓存，后面的 Bundle 聚合逻辑会处理
+                updated_card_obj = ctx.cache.id_map.get(raw_id)
+        else:
+            updated_card_obj = ctx.cache.update_card_data(raw_id, update_payload)
         
         # ID 变更处理
         if raw_id != final_rel_path_id:
@@ -634,13 +684,14 @@ def api_update_card():
                     escaped_bundle_dir = bundle_dir.replace('_', r'\_').replace('%', r'\%')
 
                     cursor = conn.execute(
-                        "SELECT id, char_name, last_modified, char_version FROM card_metadata WHERE category = ?", 
+                        "SELECT id, char_name, last_modified, char_version FROM card_metadata WHERE category = ?",
                         (bundle_dir,)
                     )
                     rows = cursor.fetchall()
+
                     if not rows:
                         cursor = conn.execute(
-                            "SELECT id, char_name, last_modified, char_version FROM card_metadata WHERE id LIKE ? || '/%' ESCAPE '\\'", 
+                            "SELECT id, char_name, last_modified, char_version FROM card_metadata WHERE id LIKE ? || '/%' ESCAPE '\\'",
                             (escaped_bundle_dir,)
                         )
                         rows = cursor.fetchall()
@@ -655,22 +706,21 @@ def api_update_card():
                             "category": bundle_dir,
                             "bundle_dir": bundle_dir
                         }
-                        
-                        # 强制使用最新时间
+
                         if v_obj['id'] == final_rel_path_id:
                             v_obj['last_modified'] = current_mtime
-                            
+
                         version_list.append(v_obj)
 
                 if version_list:
                     # 重新排序
                     version_list.sort(key=lambda x: x['last_modified'], reverse=True)
-                    
+
                     new_leader_stub = version_list[0]
                     bundle_card = new_leader_stub.copy()
-                    
+
                     # 补全 Leader 信息
-                    if bundle_card['id'] == final_rel_path_id:
+                    if bundle_card['id'] == target_version_id:
                         bundle_card.update(update_payload)
                     else:
                         if new_leader_stub['id'] in ctx.cache.id_map:
@@ -679,16 +729,35 @@ def api_update_card():
 
                     bundle_card['is_bundle'] = True
                     bundle_card['bundle_dir'] = bundle_dir
-                    bundle_card['versions'] = [
-                        {"id": v['id'], "filename": v['filename'], "last_modified": v['last_modified'], "char_version": v.get('char_version', '')} 
-                        for v in version_list
-                    ]
-                    
-                    # UI Data
+
+                    bundle_card['versions'] = []
+                    cover_id = version_list[0]['id']  # 提前定义封面ID供循环使用
+                    for v in version_list:
+                        ver_info = {
+                            "id": v['id'],
+                            "filename": v['filename'],
+                            "last_modified": v['last_modified'],
+                            "char_version": v.get('char_version', '')
+                        }
+                        ver_remark = get_version_remark(ui_data, bundle_dir, v['id'], cover_id)
+                        if ver_remark:
+                            ver_info['ui_summary'] = ver_remark.get('summary', '')
+                            ver_info['source_link'] = ver_remark.get('link', '')
+                            ver_info['resource_folder'] = ver_remark.get('resource_folder', '')
+                        bundle_card['versions'].append(ver_info)
+
                     ui_info = ui_data.get(bundle_dir, {})
-                    bundle_card['ui_summary'] = ui_info.get('summary', '')
-                    bundle_card['source_link'] = ui_info.get('link', '')
-                    bundle_card['resource_folder'] = ui_info.get('resource_folder', '')
+
+                    # 总是重新获取 cover 的备注，不使用可能包含非主版本备注的 ui_summary_val
+                    cover_remark = get_version_remark(ui_data, bundle_dir, cover_id, cover_id)
+                    if cover_remark:
+                        bundle_card['ui_summary'] = cover_remark.get('summary', '')
+                        bundle_card['source_link'] = cover_remark.get('link', '')
+                        bundle_card['resource_folder'] = cover_remark.get('resource_folder', '')
+                    else:
+                        bundle_card['ui_summary'] = ui_info.get('summary', '')
+                        bundle_card['source_link'] = ui_info.get('link', '')
+                        bundle_card['resource_folder'] = ui_info.get('resource_folder', '')
                     
                     # URL
                     encoded_id = quote(bundle_card['id'])
@@ -1865,11 +1934,39 @@ def api_toggle_bundle_mode():
         
         # === 1. 取消聚合 (Disable) ===
         if action == 'disable':
+            # 在删除标记文件前，先将 bundle 的全局 link/resource_folder 复制到每个版本
+            ui_data = load_ui_data()
+            ui_changed = False
+            
+            if folder_path in ui_data and os.path.exists(full_path):
+                # 收集该目录下所有卡片 ID
+                version_ids = []
+                for root, dirs, files in os.walk(full_path):
+                    if root != full_path:
+                        continue
+                    for f in files:
+                        if f.lower().endswith('.png'):
+                            rel_id = f"{folder_path}/{f}"
+                            version_ids.append(rel_id)
+                
+                # 迁移 bundle 的全局数据到各个版本
+                if version_ids:
+                    from core.data.ui_store import migrate_bundle_remarks_to_versions
+                    migrate_bundle_remarks_to_versions(ui_data, folder_path, version_ids)
+                    ui_changed = True
+                
+                # 删除 bundle 的全局数据（保留版本级别的 summary）
+                del ui_data[folder_path]
+                ui_changed = True
+            
+            if ui_changed:
+                save_ui_data(ui_data)
+            
             if os.path.exists(marker_path):
                 os.remove(marker_path)
             # 刷新缓存
             force_reload(reason="toggle_bundle_mode:disable")
-            return jsonify({"success": True, "msg": "已取消聚合。所有版本现已作为独立卡片显示。"})
+            return jsonify({"success": True, "msg": "已取消聚合。所有版本现已作为独立卡片显示，资源目录和链接已保留。"})
 
         # === 2. 检查阶段 (Check) ===
         # 扫描目录下所有PNG
@@ -1907,24 +2004,46 @@ def api_toggle_bundle_mode():
             for c in cards_in_dir:
                 all_tags.update(c['tags'])
             
-            # 3.2 UI 数据合并 (Notes/Links/Resource)
-            # 策略：按修改时间倒序，优先使用最新的有数据的卡片
+            # 3.2 UI 数据合并
+            # 策略：按修改时间倒序
             cards_in_dir.sort(key=lambda x: x['mtime'], reverse=True)
             
-            merged_ui = {
-                "summary": "", "link": "", "resource_folder": ""
+            # 初始化 bundle 的全局 UI 数据
+            bundle_ui = {
+                "link": "",
+                "resource_folder": ""
             }
             
-            # 查找最新的一条非空数据
-            for field in ['summary', 'link', 'resource_folder']:
-                for c in cards_in_dir:
-                    val = c['ui'].get(field)
-                    if val:
-                        merged_ui[field] = val
-                        break
+            # 查找最新的有 link/resource_folder 的卡片作为全局值
+            for c in cards_in_dir:
+                ui = c['ui']
+                if ui.get('link') and not bundle_ui['link']:
+                    bundle_ui['link'] = ui['link']
+                if ui.get('resource_folder') and not bundle_ui['resource_folder']:
+                    bundle_ui['resource_folder'] = ui['resource_folder']
+                # 如果都已找到，提前退出
+                if bundle_ui['link'] and bundle_ui['resource_folder']:
+                    break
             
-            # 3.3 保存 UI 数据到文件夹 Key
-            ui_data[folder_path] = merged_ui
+            # 3.3 迁移各版本的 summary 到版本级别
+            from core.data.ui_store import set_version_remark
+            # 封面是第一个卡片（已按修改时间排序）
+            cover_id = cards_in_dir[0]['id'] if cards_in_dir else None
+            for c in cards_in_dir:
+                version_id = c['id']
+                old_ui = c['ui']
+                # 只保留 summary 在版本级别
+                if old_ui.get('summary'):
+                    version_remark = {
+                        'summary': old_ui['summary'],
+                        'link': '',  # link 和 resource_folder 由 bundle 全局提供
+                        'resource_folder': ''
+                    }
+                    if set_version_remark(ui_data, folder_path, version_id, version_remark, cover_id):
+                        pass  # set_version_remark 已经修改了 ui_data
+            
+            # 保存 bundle 的全局 UI 数据（包含 link 和 resource_folder）
+            ui_data[folder_path] = bundle_ui
             
             # 3.4 可选：将合并后的标签写回最新那张卡片 (为了让搜索能搜到)
             # 或者，我们在 GlobalMetadataCache 处理聚合时已经处理了标签显示
@@ -2188,10 +2307,38 @@ def api_get_card_detail():
         # 处理 UI Cache
         ui_data = load_ui_data()
         ui_key = resolve_ui_key(card_id)
-        ui_info = ui_data.get(ui_key, {})
-        card_data['ui_summary'] = ui_info.get('summary', '')
-        card_data['source_link'] = ui_info.get('link', '')
-        card_data['resource_folder'] = ui_info.get('resource_folder', '')
+
+        is_version_of_bundle = False
+        parent_dir = os.path.dirname(card_id).replace('\\', '/')
+
+        if parent_dir in ctx.cache.bundle_map:
+            is_version_of_bundle = True
+
+        if is_version_of_bundle:
+            # 获取 bundle 的封面ID以支持向后兼容
+            cover_id = None
+            if parent_dir in ctx.cache.bundle_map:
+                main_bundle_id = ctx.cache.bundle_map[parent_dir]
+                if main_bundle_id in ctx.cache.id_map:
+                    bundle_card = ctx.cache.id_map[main_bundle_id]
+                    if bundle_card.get('versions'):
+                        cover_id = bundle_card['versions'][0]['id']
+
+            ver_remark = get_version_remark(ui_data, parent_dir, card_id, cover_id)
+            if ver_remark:
+                card_data['ui_summary'] = ver_remark.get('summary', '')
+                card_data['source_link'] = ver_remark.get('link', '')
+                card_data['resource_folder'] = ver_remark.get('resource_folder', '')
+            else:
+                ui_info = ui_data.get(ui_key, {})
+                card_data['ui_summary'] = ui_info.get('summary', '')
+                card_data['source_link'] = ui_info.get('link', '')
+                card_data['resource_folder'] = ui_info.get('resource_folder', '')
+        else:
+            ui_info = ui_data.get(ui_key, {})
+            card_data['ui_summary'] = ui_info.get('summary', '')
+            card_data['source_link'] = ui_info.get('link', '')
+            card_data['resource_folder'] = ui_info.get('resource_folder', '')
 
         return jsonify({"success": True, "card": card_data})
     except Exception as e:
