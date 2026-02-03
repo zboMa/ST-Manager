@@ -61,6 +61,34 @@ def _strip_port(ip):
     return ip
 
 
+def _normalize_host(host):
+    """
+    规范化 Host（去端口/去 IPv6 方括号）
+    """
+    if not host:
+        return ''
+
+    host = host.strip()
+
+    # IPv6 with brackets: [::1]:1234
+    if host.startswith('[') and ']' in host:
+        host = host[1:host.index(']')].strip()
+    else:
+        # IPv4/hostname with port
+        if ':' in host:
+            host = host.split(':', 1)[0].strip()
+
+    return host.lower()
+
+
+def _is_local_host(host):
+    """
+    判断 Host 是否为本机访问
+    """
+    normalized = _normalize_host(host)
+    return normalized in ('localhost', '127.0.0.1', '::1')
+
+
 
 
 def get_trusted_proxies():
@@ -230,6 +258,7 @@ def get_real_ip():
     trusted_proxies = get_trusted_proxies()
     is_proxy = bool(remote_addr and is_ip_in_whitelist(remote_addr, trusted_proxies))
     has_forwarded = bool(request.headers.get('X-Forwarded-For') or request.headers.get('X-Real-IP'))
+    local_host = _is_local_host(request.host)
 
     if is_proxy:
         # 仅在受信任代理下使用转发头
@@ -250,8 +279,10 @@ def get_real_ip():
                     return ''
                 return real_ip
 
-        # 代理请求但未携带转发头，视为外网，不允许回退到本机 IP
-        if has_forwarded or not is_ip_in_whitelist(remote_addr, DEFAULT_TRUSTED_IPS):
+        # 代理请求但未携带转发头：
+        # - 若 Host 非本机，则视为外网，不允许回退到本机 IP
+        # - 若 Host 为本机，允许回退（本机访问）
+        if (has_forwarded or not is_ip_in_whitelist(remote_addr, DEFAULT_TRUSTED_IPS)) or not local_host:
             return ''
 
     return remote_addr or ''
