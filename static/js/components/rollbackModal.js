@@ -79,8 +79,7 @@ export default function rollbackModal() {
 
             this.isLoading = true;
             listBackups({ id: targetId, type: type, file_path: targetPath })
-                .then(res => {
-                    this.isLoading = false;
+                .then(async (res) => {
                     if (res.success) {
                         // 构造版本列表
                         const currentVer = {
@@ -91,9 +90,10 @@ export default function rollbackModal() {
                             is_current: true,
                             label: "LIVE"
                         };
-                        
-                        this.backupList = res.backups;
-                        this.rollbackVersions = [currentVer, ...res.backups];
+
+                        const pruneResult = await this._pruneBackupsRepresentedByCurrent(currentVer, res.backups || []);
+                        this.backupList = pruneResult.backups;
+                        this.rollbackVersions = [currentVer, ...this.backupList];
                         
                         // 默认选中：左=最近备份，右=当前
                         this.diffSelection = {
@@ -102,6 +102,10 @@ export default function rollbackModal() {
                         };
                         
                         this.showRollbackModal = true;
+
+                        if (pruneResult.hidden > 0 && this.$store?.global?.showToast) {
+                            this.$store.global.showToast(`已折叠 ${pruneResult.hidden} 个与 Current 重合的最新快照`, 2000);
+                        }
                         
                         // 立即加载 Diff
                         this.updateDiffView();
@@ -110,8 +114,10 @@ export default function rollbackModal() {
                     }
                 })
                 .catch(err => {
-                    this.isLoading = false;
                     alert("加载备份失败: " + err);
+                })
+                .finally(() => {
+                    this.isLoading = false;
                 });
         },
 
@@ -586,6 +592,85 @@ export default function rollbackModal() {
             }
         },
 
+        _hasLorebookDiff(leftData, rightData) {
+            const leftEntries = this._extractLorebookEntries(leftData);
+            const rightEntries = this._extractLorebookEntries(rightData);
+            const pairs = this._buildLorebookPairs(leftEntries, rightEntries);
+            if (!pairs.length) return false;
+            for (const pair of pairs) {
+                const meta = this._getPairMeta(pair);
+                if (meta.status !== 'same') return true;
+            }
+            return false;
+        },
+
+        _hasLorebookVisibleDiff(leftData, rightData) {
+            const leftEntries = this._extractLorebookEntries(leftData);
+            const rightEntries = this._extractLorebookEntries(rightData);
+            const pairs = this._buildLorebookPairs(leftEntries, rightEntries);
+            if (!pairs.length) return false;
+
+            for (const pair of pairs) {
+                // 一侧有一侧无：可视上一定是新增/删除
+                if (!pair.left || !pair.right) return true;
+
+                // 按当前 UI 真正展示的字段判定可视差异
+                if (pair.left.comment !== pair.right.comment) return true;
+                if (pair.left.content !== pair.right.content) return true;
+
+                const leftKeys = pair.left.keys.join('|');
+                const rightKeys = pair.right.keys.join('|');
+                if (leftKeys !== rightKeys) return true;
+
+                const leftSec = pair.left.secondaryKeys.join('|');
+                const rightSec = pair.right.secondaryKeys.join('|');
+                if (leftSec !== rightSec) return true;
+            }
+            return false;
+        },
+
+        _isSameForAutoPick(leftData, rightData) {
+            if (this._isLorebookComparison()) {
+                return !this._hasLorebookVisibleDiff(leftData, rightData);
+            }
+            return this._isDataEqual(leftData, rightData);
+        },
+
+        async _pruneBackupsRepresentedByCurrent(currentVer, backups) {
+            const ordered = Array.isArray(backups) ? backups : [];
+            if (!ordered.length) {
+                return { backups: [], hidden: 0 };
+            }
+
+            let currentData;
+            try {
+                currentData = await this._loadVersionData(currentVer);
+            } catch (e) {
+                console.warn('Load current version for backup pruning failed:', e);
+                return { backups: ordered, hidden: 0 };
+            }
+
+            let hidden = 0;
+            for (const backup of ordered) {
+                try {
+                    const backupData = await this._loadVersionData(backup);
+                    if (this._isSameForAutoPick(backupData, currentData)) {
+                        hidden += 1;
+                    } else {
+                        break;
+                    }
+                } catch (e) {
+                    console.warn('Load backup for pruning failed:', e);
+                    break;
+                }
+            }
+
+            return {
+                backups: ordered.slice(hidden),
+                hidden
+            };
+        },
+
         async _loadVersionData(ver) {
             let data;
 
@@ -663,13 +748,13 @@ export default function rollbackModal() {
 
                 // 默认打开时：若“最新快照”与 Current 完全一致，自动切到下一个有差异的版本
                 if (autoAdjustLeft && rightVer.is_current && leftVer && !leftVer.is_current) {
-                    const isSameAsCurrent = this._isDataEqual(leftData, rightData);
+                    const isSameAsCurrent = this._isSameForAutoPick(leftData, rightData);
                     if (isSameAsCurrent && this.backupList.length > 1) {
                         const currentIdx = this.backupList.findIndex(b => b.path === leftVer.path);
                         for (let i = currentIdx + 1; i < this.backupList.length; i++) {
                             const candidate = this.backupList[i];
                             const candidateData = await this._loadVersionData(candidate);
-                            if (!this._isDataEqual(candidateData, rightData)) {
+                            if (!this._isSameForAutoPick(candidateData, rightData)) {
                                 this.diffSelection.left = candidate;
                                 await this.updateDiffView(false);
                                 return;
@@ -714,6 +799,17 @@ export default function rollbackModal() {
                 if(res.success) {
                     alert("回滚成功！页面将刷新数据。");
                     this.showRollbackModal = false;
+
+                    window.dispatchEvent(new CustomEvent('wi-restore-applied', {
+                        detail: {
+                            targetType: this.rollbackTargetType,
+                            targetId: this.rollbackTargetId,
+                            targetFilePath: this.rollbackTargetPath,
+                            restoredBackupPath: targetVer.path,
+                            restoredBackupLabel: targetVer.label || '',
+                            restoredBackupMtime: targetVer.mtime || 0
+                        }
+                    }));
                     
                     // 刷新父级数据
                     if (this.rollbackTargetType === 'card') {

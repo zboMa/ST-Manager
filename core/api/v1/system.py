@@ -733,26 +733,18 @@ def api_restore_backup():
         # 1. 物理覆盖 (恢复图片像素 或 JSON 内容)
         shutil.copy2(backup_path, target_path)
         
-        # 2. [关键修改] 标准化重写
-        # 读取刚刚恢复的文件，进行 deterministic_sort 后原地写回
-        # 这样能保证回滚后的文件格式与当前系统保存的格式完全一致 (Key排序、缩进等)
-        try:
-            # 提取刚刚恢复的文件信息
-            info = extract_card_info(target_path)
-            if info:
-                # data_block 提取逻辑，确保兼容 V2/V3
-                data_to_write = info
-                
-                # 如果是 V3 嵌套结构，extract_card_info 返回的可能是最外层
-                # write_card_metadata 会再次调用 deterministic_sort
-                # 所以我们只需要把读取到的 info 原样传进去，write_card_metadata 会负责清洗和排序
-                
-                # 执行标准化写入 (这会更新 last_modified，并统一 JSON 格式)
-                write_card_metadata(target_path, data_to_write)
-                
-                print(f"Normalized restored file: {target_path}")
-        except Exception as e:
-            logger.warning(f"Restored file normalization failed (non-fatal): {e}")
+        # 2. 卡片类型可选标准化重写
+        # 仅对卡片文件做标准化，避免把独立世界书 JSON 误判为角色卡并重写结构
+        is_embedded_lorebook = (type_ == 'lorebook' and target_id.startswith('embedded::'))
+        should_normalize = (type_ == 'card' or is_embedded_lorebook)
+        if should_normalize:
+            try:
+                info = extract_card_info(target_path)
+                if info:
+                    write_card_metadata(target_path, info)
+                    print(f"Normalized restored file: {target_path}")
+            except Exception as e:
+                logger.warning(f"Restored file normalization failed (non-fatal): {e}")
 
         # 3. 恢复伴生图 (针对 JSON 卡片)
         if target_path.lower().endswith('.json'):

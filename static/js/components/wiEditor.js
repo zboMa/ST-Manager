@@ -88,6 +88,11 @@ export default function wiEditor() {
                 this.openWorldInfoFile(e.detail);
             });
 
+            // 监听时光机恢复，确保编辑器内存与磁盘恢复结果同步
+            window.addEventListener('wi-restore-applied', (e) => {
+                this._handleRestoreApplied(e?.detail || {});
+            });
+
             // 监听关闭
             this.$watch('showFullScreenWI', (val) => {
                 if (!val) {
@@ -109,6 +114,119 @@ export default function wiEditor() {
 
         openRollback() {
             this.handleOpenRollback(this.editingWiFile, this.editingData);
+        },
+
+        _normalizePathForCompare(path) {
+            return String(path || '').replace(/\\/g, '/').toLowerCase();
+        },
+
+        _isRestoreForCurrentEditor(detail) {
+            if (!this.showFullScreenWI || !this.editingWiFile) return false;
+
+            const targetType = String(detail.targetType || '');
+            const targetId = String(detail.targetId || '');
+            const targetFilePath = this._normalizePathForCompare(detail.targetFilePath || '');
+            const currentFile = this.editingWiFile || {};
+
+            if (targetType === 'card') {
+                // 仅内嵌模式会直接编辑角色卡
+                const currentCardId = String(this.editingData?.id || currentFile.card_id || '');
+                const normalizedTargetCardId = targetId.startsWith('embedded::')
+                    ? targetId.replace('embedded::', '')
+                    : targetId;
+                return !!currentCardId && currentCardId === normalizedTargetCardId;
+            }
+
+            if (targetType === 'lorebook') {
+                // 内嵌世界书回滚会落到宿主卡片
+                if (targetId.startsWith('embedded::')) {
+                    const currentCardId = String(this.editingData?.id || currentFile.card_id || '');
+                    return !!currentCardId && currentCardId === targetId.replace('embedded::', '');
+                }
+
+                // 独立世界书按 file_path 精确匹配
+                const currentPath = this._normalizePathForCompare(currentFile.file_path || currentFile.path || '');
+                return !!currentPath && !!targetFilePath && currentPath === targetFilePath;
+            }
+
+            return false;
+        },
+
+        async _syncEditorStateAfterRestore() {
+            if (!this.editingWiFile) return false;
+
+            const keepIndex = this.currentWiIndex;
+            const currentFile = this.editingWiFile;
+
+            if (currentFile.type === 'embedded' || this.editingData?.id) {
+                const cardId = this.editingData?.id || currentFile.card_id;
+                const res = await getCardDetail(cardId);
+                if (!res || !res.success || !res.card) {
+                    return false;
+                }
+
+                const card = res.card;
+                if (card.character_book) {
+                    card.character_book = normalizeWiBook(card.character_book, card.char_name || "WI");
+                }
+
+                if (Array.isArray(card.character_book?.entries)) {
+                    const sessionTs = Date.now();
+                    card.character_book.entries.forEach((entry, idx) => {
+                        entry.id = `edit-${sessionTs}-${idx}`;
+                    });
+                }
+
+                this.editingData = card;
+                this._ensureEntryUids();
+            } else {
+                const res = await getWorldInfoDetail({
+                    id: currentFile.id,
+                    source_type: currentFile.source_type,
+                    file_path: currentFile.file_path || currentFile.path,
+                    force_full: true
+                });
+
+                if (!res || !res.success) {
+                    return false;
+                }
+
+                const book = normalizeWiBook(res.data, currentFile.name || "World Info");
+                if (Array.isArray(book.entries)) {
+                    const sessionTs = Date.now();
+                    book.entries.forEach((entry, idx) => {
+                        entry.id = `edit-${sessionTs}-${idx}`;
+                    });
+                }
+
+                this.editingData.character_book = book;
+                this._ensureEntryUids();
+            }
+
+            const entries = this.getWIArrayRef();
+            if (!entries.length) {
+                this.currentWiIndex = 0;
+            } else {
+                this.currentWiIndex = Math.max(0, Math.min(keepIndex, entries.length - 1));
+            }
+
+            if (autoSaver && typeof autoSaver.initBaseline === 'function') {
+                autoSaver.initBaseline(this.editingData);
+            }
+            return true;
+        },
+
+        async _handleRestoreApplied(detail) {
+            if (!this._isRestoreForCurrentEditor(detail)) return;
+
+            try {
+                const synced = await this._syncEditorStateAfterRestore();
+                if (synced) {
+                    this.$store.global.showToast('⏪ 已同步恢复版本到当前编辑器', 2200);
+                }
+            } catch (e) {
+                console.warn('Sync editor after restore failed:', e);
+            }
         },
 
         _generateEntryUid() {
@@ -453,7 +571,13 @@ export default function wiEditor() {
                 entry_uid: uid
             }).then(res => {
                 if (res.success) {
-                    this.entryHistoryItems = res.items || [];
+                    const rawItems = Array.isArray(res.items) ? res.items : [];
+                    this.entryHistoryItems = rawItems.map((item, idx) => ({
+                        ...item,
+                        // 历史记录一律标记为非 current，避免类型混淆导致按钮误禁用
+                        is_current: false,
+                        id: item && item.id !== undefined ? item.id : (`h-${item?.created_at || Date.now()}-${idx}`)
+                    }));
                     const currentVersion = {
                         id: '__current__',
                         is_current: true,
@@ -476,29 +600,61 @@ export default function wiEditor() {
             });
         },
 
+        canRestoreEntryFromSelection() {
+            const left = this.entryHistorySelection.left;
+            if (!left) return false;
+            if (left.is_current === true) return false;
+            return !!left.snapshot;
+        },
+
         restoreEntryFromSelectedHistory() {
             const target = this.entryHistorySelection.left;
-            if (!target || target.is_current) {
+            if (!this.canRestoreEntryFromSelection()) {
                 alert('请在左侧选择一个历史版本再恢复。');
                 return;
             }
             this.restoreEntryFromHistory(target);
         },
 
-        restoreEntryFromHistory(item) {
-            if (!item || !item.snapshot || !this.activeEditorEntry) return;
-            if (!confirm('确定回滚当前条目到该历史版本吗？')) return;
+        _resolveEntryRestoreTarget(uid) {
+            const targetUid = String(uid || this.entryHistoryTargetUid || '').trim();
+            const current = this.activeEditorEntry;
+            if (current && targetUid) {
+                const currentUid = String(current[this.entryUidField] || '').trim();
+                if (currentUid && currentUid === targetUid) {
+                    return { entry: current, index: this.currentWiIndex };
+                }
+            }
 
-            const target = this.activeEditorEntry;
+            const arr = this.getWIArrayRef();
+            if (!Array.isArray(arr) || !arr.length || !targetUid) return { entry: current, index: this.currentWiIndex };
+            const idx = arr.findIndex((it) => String(it?.[this.entryUidField] || '').trim() === targetUid);
+            if (idx >= 0) return { entry: arr[idx], index: idx };
+            return { entry: current, index: this.currentWiIndex };
+        },
+
+        restoreEntryFromHistory(item) {
+            if (!item || !item.snapshot) return;
+            const keepUid = String(this.entryHistoryTargetUid || item.snapshot?.[this.entryUidField] || '').trim();
+            const resolved = this._resolveEntryRestoreTarget(keepUid);
+            const target = resolved.entry;
+            if (!target) {
+                alert('未找到可恢复的目标条目，请重新打开条目时光机后再试。');
+                return;
+            }
+            if (!confirm('确定回滚当前条目到该历史版本吗？')) return;
             const keepId = target.id;
-            const keepUid = target[this.entryUidField] || this.entryHistoryTargetUid;
+            const keepRestoreUid = target[this.entryUidField] || keepUid;
             const restored = JSON.parse(JSON.stringify(item.snapshot));
 
             Object.keys(target).forEach((k) => delete target[k]);
             Object.assign(target, restored);
 
             if (keepId !== undefined) target.id = keepId;
-            if (keepUid) target[this.entryUidField] = keepUid;
+            if (keepRestoreUid) target[this.entryUidField] = keepRestoreUid;
+            if (typeof resolved.index === 'number' && resolved.index >= 0) {
+                this.currentWiIndex = resolved.index;
+            }
 
             this.showEntryHistoryModal = false;
             this.$store.global.showToast('⏪ 条目已回滚，请记得保存世界书', 2200);

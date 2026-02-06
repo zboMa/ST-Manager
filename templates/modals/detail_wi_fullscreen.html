@@ -664,7 +664,7 @@
                                 </div>
                                 <button @click="restoreEntryFromSelectedHistory()"
                                     class="btn-primary px-3 py-1 text-xs rounded whitespace-nowrap"
-                                    :disabled="!entryHistorySelection.left || entryHistorySelection.left.is_current">
+                                    :disabled="!canRestoreEntryFromSelection()">
                                     恢复到 Left 版本
                                 </button>
                             </div>
