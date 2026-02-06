@@ -132,6 +132,13 @@
                     </template>
                 </div>
 
+                <!-- 帮助按钮 -->
+                <button @click="showHelpModal=true"
+                    class="btn-secondary px-3 py-1.5 text-xs rounded hover:bg-blue-500/20 hover:text-blue-400 ml-2"
+                    title="查看帮助指南">
+                    ?
+                </button>
+
                 <button @click="showFullScreenWI=false"
                     class="btn-secondary px-3 py-1.5 text-xs rounded hover:bg-red-500/20 hover:text-red-400 ml-2">
                     ✕
@@ -757,4 +764,289 @@
 
         </div>
     </div>
+
+    <!-- 帮助指南模态框 -->
+    <div x-show="showHelpModal" x-cloak class="fixed inset-0 z-[10001] bg-black/70 flex items-center justify-center p-4"
+        @click.self="showHelpModal=false">
+        <div class="w-full max-w-4xl max-h-[85vh] rounded-xl border border-[var(--border-main)] bg-[var(--bg-panel)] shadow-2xl flex flex-col overflow-hidden">
+            <!-- 头部 -->
+            <div class="px-5 py-4 border-b border-[var(--border-light)] flex items-center justify-between bg-[var(--bg-sub)]">
+                <div class="flex items-center gap-3">
+                    <span class="text-2xl">📖</span>
+                    <div>
+                        <div class="text-lg font-bold text-[var(--text-main)]">全屏世界书编辑器帮助指南</div>
+                        <div class="text-xs text-[var(--text-dim)]">World Info Editor Help Guide</div>
+                    </div>
+                </div>
+                <button @click="showHelpModal=false" class="text-gray-400 hover:text-red-400 px-2 py-1 rounded text-xl">✕</button>
+            </div>
+
+            <!-- 内容区 -->
+            <div class="flex-1 overflow-y-auto custom-scrollbar p-6 space-y-6">
+
+                <!-- 1. 界面概览 -->
+                <div class="help-section">
+                    <h3 class="text-base font-bold text-orange-400 mb-3 flex items-center gap-2">
+                        <span>🖥️</span> 界面布局
+                    </h3>
+                    <div class="text-sm text-[var(--text-sub)] space-y-2 leading-relaxed">
+                        <p>全屏世界书编辑器采用三栏布局：</p>
+                        <ul class="list-disc list-inside space-y-1 ml-2">
+                            <li><strong class="text-[var(--text-main)]">左侧列表</strong> - 显示所有条目，可点击选择、拖拽排序</li>
+                            <li><strong class="text-[var(--text-main)]">中间编辑区</strong> - 沉浸式编辑当前条目的内容</li>
+                            <li><strong class="text-[var(--text-main)]">右侧面板</strong> - 属性设置与剪切板管理</li>
+                        </ul>
+                        <p class="text-xs text-[var(--text-dim)] mt-2">💡 提示：在移动端可收起左右面板以扩大编辑区域</p>
+                    </div>
+                </div>
+
+                <!-- 2. 保存相关 -->
+                <div class="help-section border-t border-[var(--border-light)] pt-5">
+                    <h3 class="text-base font-bold text-green-400 mb-3 flex items-center gap-2">
+                        <span>💾</span> 保存方式
+                    </h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div class="bg-[var(--bg-sub)] p-3 rounded-lg border border-[var(--border-light)]">
+                            <div class="font-bold text-[var(--text-main)] mb-1">💾 保存条目</div>
+                            <p class="text-xs text-[var(--text-sub)]">保存当前条目的修改。如果是独立世界书文件，直接保存到文件；如果是内嵌世界书，保存到角色卡。</p>
+                        </div>
+                        <div class="bg-[var(--bg-sub)] p-3 rounded-lg border border-[var(--border-light)]">
+                            <div class="font-bold text-[var(--text-main)] mb-1">🗂️ 保存整本</div>
+                            <p class="text-xs text-[var(--text-sub)]">先创建整本回滚版本（备份旧状态），再执行保存。适合大改前使用，可随时回滚整本。</p>
+                        </div>
+                        <div class="bg-[var(--bg-sub)] p-3 rounded-lg border border-[var(--border-light)]">
+                            <div class="font-bold text-[var(--text-main)] mb-1">📤 另存为...</div>
+                            <p class="text-xs text-[var(--text-sub)]">将当前世界书保存为新文件。内嵌世界书可提取为独立的全局世界书文件。</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 3. 备份与时光机 -->
+                <div class="help-section border-t border-[var(--border-light)] pt-5">
+                    <h3 class="text-base font-bold text-blue-400 mb-3 flex items-center gap-2">
+                        <span>⏪</span> 备份、快照与时光机
+                    </h3>
+                    <div class="space-y-3 text-sm text-[var(--text-sub)]">
+                        <div class="flex items-start gap-3">
+                            <span class="text-lg">📸</span>
+                            <div>
+                                <strong class="text-[var(--text-main)]">创建快照</strong>
+                                <p class="text-xs mt-1">左键点击创建普通备份，右键点击创建<span class="text-orange-400">关键节点</span>备份（标记为重要版本）。</p>
+                            </div>
+                        </div>
+                        <div class="flex items-start gap-3">
+                            <span class="text-lg">⏪</span>
+                            <div>
+                                <strong class="text-[var(--text-main)]">时光机（整本回滚）</strong>
+                                <p class="text-xs mt-1">查看所有历史版本，可选择任意时间点回滚整本世界书。支持对比不同版本的差异。</p>
+                            </div>
+                        </div>
+                        <div class="flex items-start gap-3">
+                            <span class="text-lg">🕰️</span>
+                            <div>
+                                <strong class="text-[var(--text-main)]">条目历史回滚</strong>
+                                <p class="text-xs mt-1">点击条目右侧的 🕰️ 按钮，可查看该条目的所有历史版本，支持行级差异对比和单条目回滚。</p>
+                            </div>
+                        </div>
+                        <div class="flex items-start gap-3">
+                            <span class="text-lg">📂</span>
+                            <div>
+                                <strong class="text-[var(--text-main)]">打开备份文件夹</strong>
+                                <p class="text-xs mt-1">快速打开存储备份文件的目录，方便手动管理或导出。</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 4. 剪切板 -->
+                <div class="help-section border-t border-[var(--border-light)] pt-5">
+                    <h3 class="text-base font-bold text-purple-400 mb-3 flex items-center gap-2">
+                        <span>📋</span> 剪切板系统
+                    </h3>
+                    <div class="text-sm text-[var(--text-sub)] space-y-2">
+                        <p>剪切板是一个全局存储空间，可跨条目、跨世界书复制粘贴内容：</p>
+                        <ul class="list-disc list-inside space-y-1 ml-2 text-xs">
+                            <li><strong class="text-[var(--text-main)]">复制到剪切板</strong> - 点击条目的 📋 按钮</li>
+                            <li><strong class="text-[var(--text-main)]">从剪切板添加</strong> - 在剪切板面板点击 ➕ 按钮</li>
+                            <li><strong class="text-[var(--text-main)]">编辑剪切板</strong> - 点击剪切板中的条目可直接编辑，修改后保存不影响原条目</li>
+                            <li><strong class="text-[var(--text-main)]">清空剪切板</strong> - 点击右上角的"清空"链接</li>
+                        </ul>
+                        <p class="text-xs text-yellow-500/80 mt-2">⚠️ 注意：剪切板内容存储在数据库中，重启后仍然保留。</p>
+                    </div>
+                </div>
+
+                <!-- 5. 条目属性详解 -->
+                <div class="help-section border-t border-[var(--border-light)] pt-5">
+                    <h3 class="text-base font-bold text-cyan-400 mb-3 flex items-center gap-2">
+                        <span>⚙️</span> 条目属性详解
+                    </h3>
+
+                    <!-- 5.1 触发策略 -->
+                    <div class="mb-4">
+                        <h4 class="text-sm font-bold text-blue-400 mb-2">触发策略</h4>
+                        <div class="space-y-2 text-xs">
+                            <div class="bg-[var(--bg-sub)] p-2 rounded border-l-2 border-blue-500">
+                                <strong class="text-[var(--text-main)]">🔵 常驻 (Constant)</strong>
+                                <p class="text-[var(--text-dim)] mt-1">始终激活，不依赖关键词触发。适合世界观、背景设定等必须始终存在的内容。</p>
+                            </div>
+                            <div class="bg-[var(--bg-sub)] p-2 rounded border-l-2 border-purple-500">
+                                <strong class="text-[var(--text-main)]">📎 向量化 (Vectorized)</strong>
+                                <p class="text-[var(--text-dim)] mt-1">使用向量匹配而非关键词，适合语义相似的场景。与常驻互斥。</p>
+                            </div>
+                            <div class="bg-[var(--bg-sub)] p-2 rounded border-l-2 border-green-500">
+                                <strong class="text-[var(--text-main)]">🟢 关键词触发 (Normal)</strong>
+                                <p class="text-[var(--text-dim)] mt-1">默认模式，需要匹配关键词才会激活。主触发词和次要/过滤词配合使用。</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 5.2 关键词 -->
+                    <div class="mb-4">
+                        <h4 class="text-sm font-bold text-green-400 mb-2">关键词设置</h4>
+                        <div class="space-y-2 text-xs">
+                            <div class="bg-[var(--bg-sub)] p-2 rounded">
+                                <strong class="text-[var(--text-main)]">主触发词 (Primary Keys)</strong>
+                                <p class="text-[var(--text-dim)] mt-1">用逗号分隔，匹配任一即可触发条目。支持正则表达式（需在高级逻辑中开启）。</p>
+                            </div>
+                            <div class="bg-[var(--bg-sub)] p-2 rounded">
+                                <strong class="text-[var(--text-main)]">次要/过滤词 (Filter Keys)</strong>
+                                <p class="text-[var(--text-dim)] mt-1">可选。启用"选择性逻辑"后，这些词决定条目是否真正被插入。</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 5.3 插入设置 -->
+                    <div class="mb-4">
+                        <h4 class="text-sm font-bold text-orange-400 mb-2">插入设置</h4>
+                        <div class="grid grid-cols-1 gap-2 text-xs">
+                            <div class="flex justify-between bg-[var(--bg-sub)] p-2 rounded">
+                                <span class="text-[var(--text-main)]">位置 (Position)</span>
+                                <span class="text-[var(--text-dim)]">决定内容插入到对话的哪个部分</span>
+                            </div>
+                            <div class="flex justify-between bg-[var(--bg-sub)] p-2 rounded">
+                                <span class="text-[var(--text-main)]">权重 (Order)</span>
+                                <span class="text-[var(--text-dim)]">数值越小越靠前，控制多个条目的插入顺序</span>
+                            </div>
+                            <div class="flex justify-between bg-[var(--bg-sub)] p-2 rounded">
+                                <span class="text-[var(--text-main)]">深度 (Depth)</span>
+                                <span class="text-[var(--text-dim)]">仅在"@层级"位置时有效，控制插入深度</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 5.4 递归与流程 -->
+                    <div class="mb-4">
+                        <h4 class="text-sm font-bold text-pink-400 mb-2">递归与流程</h4>
+                        <div class="space-y-1 text-xs">
+                            <p><span class="text-[var(--text-main)]">不可递归</span> - 该条目不会被递归扫描触发</p>
+                            <p><span class="text-[var(--text-main)]">阻止后续递归</span> - 激活后停止后续递归扫描</p>
+                            <p><span class="text-red-400">无视限额</span> - 即使超出预算也强制插入（慎用）</p>
+                            <p><span class="text-[var(--text-main)]">延迟递归等级</span> - 延迟到指定递归深度才激活</p>
+                        </div>
+                    </div>
+
+                    <!-- 5.5 高级逻辑 -->
+                    <div>
+                        <h4 class="text-sm font-bold text-purple-400 mb-2">高级逻辑</h4>
+                        <div class="space-y-2 text-xs">
+                            <div class="grid grid-cols-2 gap-2">
+                                <div class="bg-[var(--bg-sub)] p-2 rounded">
+                                    <strong class="text-[var(--text-main)]">逻辑模式</strong>
+                                    <ul class="text-[var(--text-dim)] mt-1 space-y-0.5">
+                                        <li>0 - 任意匹配 (OR)</li>
+                                        <li>1 - 全部匹配 (AND)</li>
+                                        <li>2 - 全不匹配 (NOR)</li>
+                                        <li>3 - 非全部 (NAND)</li>
+                                    </ul>
+                                </div>
+                                <div class="bg-[var(--bg-sub)] p-2 rounded">
+                                    <strong class="text-[var(--text-main)]">匹配选项</strong>
+                                    <ul class="text-[var(--text-dim)] mt-1 space-y-0.5">
+                                        <li>全词匹配 - 匹配完整单词</li>
+                                        <li>区分大小写 - 严格大小写</li>
+                                        <li>正则模式 - 使用正则匹配</li>
+                                    </ul>
+                                </div>
+                            </div>
+                            <div class="bg-[var(--bg-sub)] p-2 rounded">
+                                <strong class="text-[var(--text-main)]">触发概率</strong>
+                                <p class="text-[var(--text-dim)] mt-1">启用后可设置 0-100% 的随机触发概率，适合随机事件或变体内容。</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 6. 查找替换 -->
+                <div class="help-section border-t border-[var(--border-light)] pt-5">
+                    <h3 class="text-base font-bold text-yellow-400 mb-3 flex items-center gap-2">
+                        <span>🔎</span> 查找与替换
+                    </h3>
+                    <div class="text-sm text-[var(--text-sub)] space-y-2">
+                        <p>支持在当前条目或全部条目中进行查找替换：</p>
+                        <ul class="list-disc list-inside space-y-1 ml-2 text-xs">
+                            <li><strong class="text-[var(--text-main)]">快捷键</strong> - 按 <kbd class="bg-[var(--bg-sub)] px-1.5 py-0.5 rounded text-[var(--text-main)]">Ctrl+H</kbd> 快速打开</li>
+                            <li><strong class="text-[var(--text-main)]">排除文本</strong> - 可设置不参与替换的文本区间（如 <code class="bg-[var(--bg-sub)] px-1 rounded">{{user}}</code>）</li>
+                            <li><strong class="text-[var(--text-main)]">可拖动</strong> - 面板可拖动，方便查看底层文本</li>
+                            <li><strong class="text-[var(--text-main)]">范围选择</strong> - 支持"当前条目"或"全部条目"</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- 7. 列表显示说明 -->
+                <div class="help-section border-t border-[var(--border-light)] pt-5">
+                    <h3 class="text-base font-bold text-gray-400 mb-3 flex items-center gap-2">
+                        <span>📋</span> 列表显示说明
+                    </h3>
+                    <div class="text-sm text-[var(--text-sub)] space-y-2">
+                        <p>左侧条目列表中的彩色标记含义：</p>
+                        <div class="flex flex-wrap gap-3 text-xs">
+                            <div class="flex items-center gap-1">
+                                <span class="w-2 h-2 rounded-full bg-blue-500"></span>
+                                <span>常驻条目</span>
+                            </div>
+                            <div class="flex items-center gap-1">
+                                <span class="w-2 h-2 rounded-full bg-purple-500"></span>
+                                <span>向量化</span>
+                            </div>
+                            <div class="flex items-center gap-1">
+                                <span class="w-2 h-2 rounded-full bg-green-500"></span>
+                                <span>已启用</span>
+                            </div>
+                            <div class="flex items-center gap-1">
+                                <span class="w-2 h-2 rounded-full bg-gray-600"></span>
+                                <span>已禁用</span>
+                            </div>
+                        </div>
+                        <p class="text-xs text-[var(--text-dim)] mt-2">顶部的徽章显示当前编辑的世界书类型：global（全局）、resource（资源）、embedded（内嵌）</p>
+                    </div>
+                </div>
+
+                <!-- 8. 快捷键 -->
+                <div class="help-section border-t border-[var(--border-light)] pt-5">
+                    <h3 class="text-base font-bold text-red-400 mb-3 flex items-center gap-2">
+                        <span>⌨️</span> 快捷键
+                    </h3>
+                    <div class="grid grid-cols-2 gap-2 text-xs">
+                        <div class="bg-[var(--bg-sub)] p-2 rounded flex justify-between">
+                            <span class="text-[var(--text-main)]">Ctrl + H</span>
+                            <span class="text-[var(--text-dim)]">打开查找替换</span>
+                        </div>
+                        <div class="bg-[var(--bg-sub)] p-2 rounded flex justify-between">
+                            <span class="text-[var(--text-main)]">Escape</span>
+                            <span class="text-[var(--text-dim)]">关闭编辑器/弹窗</span>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- 底部 -->
+            <div class="px-5 py-3 border-t border-[var(--border-light)] bg-[var(--bg-sub)] flex justify-end">
+                <button @click="showHelpModal=false" class="btn-primary px-4 py-2 rounded text-sm">
+                    我知道了
+                </button>
+            </div>
+        </div>
+    </div>
 </div>
+

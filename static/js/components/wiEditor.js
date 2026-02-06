@@ -47,6 +47,9 @@ export default function wiEditor() {
         initialSnapshotChecked: false,
         initialSnapshotInitPromise: null,
 
+        // 帮助模态框
+        showHelpModal: false,
+
         // 条目历史回滚
         showEntryHistoryModal: false,
         isEntryHistoryLoading: false,
