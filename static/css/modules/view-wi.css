@@ -1133,6 +1133,15 @@ html.light-mode .wi-reader-detail .bg-\[var\(--bg-sub\)\] {
   background: var(--bg-sub) !important
 }
 
+/* 帮助指南模态框样式 */
+.wi-help-modal-content {
+  background: var(--bg-body);
+}
+
+html.light-mode .wi-help-modal-content {
+  background: #f3f4f6 !important;
+}
+
 .wi-reader-entry.toc-flash {
   animation: wiTocFlash 0.9s ease-out
 }
