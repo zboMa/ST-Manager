@@ -142,14 +142,14 @@
                 <div x-show="showRuleMenu" @click.away="showRuleMenu = false"
                     x-transition:enter="transition ease-out duration-100" x-transition:enter-start="opacity-0 scale-95"
                     x-transition:enter-end="opacity-100 scale-100"
-                    class="absolute top-full left-0 mt-2 w-56 bg-[var(--bg-panel)] border border-[var(--border-light)] rounded-lg shadow-2xl py-1 custom-scrollbar"
-                    style="z-index: 9999; max-height: 300px; overflow-y: auto;">
+                    class="absolute top-full left-0 mt-2 w-56 bg-[var(--bg-panel)] border border-[var(--border-light)] rounded-lg shadow-2xl py-1"
+                    style="z-index: 9999;">
 
                     <!-- 这个列表由全局 store 管理 -->
                     <template x-for="rs in $store.global.availableRuleSets" :key="rs.id">
                         <button @click="executeRuleSet(rs.id); showRuleMenu=false"
-                            class="w-full text-left px-3 py-2 text-xs hover:bg-[var(--bg-hover)] text-[var(--text-main)] truncate">
-                            <span x-text="rs.meta.name"></span>
+                            class="w-full text-left px-3 py-2 text-xs hover:bg-[var(--bg-hover)] text-[var(--text-main)] block"
+                            x-text="rs.meta && rs.meta.name ? rs.meta.name : rs.id">
                         </button>
                     </template>
                     <div x-show="!$store.global.availableRuleSets || $store.global.availableRuleSets.length===0" class="px-3 py-2 text-xs text-[var(--text-dim)]">无规则集

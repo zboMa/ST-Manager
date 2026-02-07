@@ -9,7 +9,6 @@ export default function executeRulesMobileModal() {
     return {
         showExecuteRulesModal: false,
         cardIds: [],
-        availableRuleSets: [],
         // 执行模式：'cards' 或 'folder'
         executeMode: 'cards',
         // 文件夹模式参数

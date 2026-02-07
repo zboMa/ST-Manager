@@ -46,8 +46,8 @@ def auto_run_rules_on_card(card_id):
         ui_info = ui_data.get(ui_key, {})
         context_data['ui_summary'] = ui_info.get('summary', '')
         
-        # 评估
-        plan_raw = engine.evaluate(context_data, ruleset)
+        # 评估（自动执行时，无条件的规则也应执行）
+        plan_raw = engine.evaluate(context_data, ruleset, match_if_no_conditions=True)
         
         if not plan_raw['actions']:
             return {"run": True, "actions": 0}
