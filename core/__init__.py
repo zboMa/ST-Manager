@@ -3,7 +3,7 @@ import shutil
 import logging
 import threading
 import traceback
-from flask import Flask
+from flask import Flask, request, send_from_directory
 
 # === 基础设施 ===
 from core.config import INTERNAL_DIR, BASE_DIR, TEMP_DIR
@@ -32,6 +32,15 @@ def create_app():
     
     # 注册数据库连接关闭钩子 (在请求结束时自动调用)
     app.teardown_appcontext(close_connection)
+    
+    # 配置静态文件的 MIME 类型
+    @app.after_request
+    def set_mime_types(response):
+        """确保 JavaScript 模块文件返回正确的 MIME 类型"""
+        path = request.path
+        if path.endswith('.js') or path.endswith('.mjs'):
+            response.headers['Content-Type'] = 'application/javascript; charset=utf-8'
+        return response
     
     # === 注册蓝图 (Blueprints) ===
     

@@ -23,17 +23,27 @@
                     @folder-selected="targetCategory = $event.detail.path">
                         <!-- 快捷按钮 -->
                         <div x-show="showQuickButtons" class="flex gap-2 mb-2">
-                            <button @click="selectFolder('')" :class="selectedPath === '' ? 'btn-primary' : 'btn-secondary'" class="flex-1 px-2 py-1 text-xs flex items-center justify-center gap-1">
+                            <button @click="selectFolder('')" :class="isSelected('') ? 'btn-primary' : 'btn-secondary'" class="flex-1 px-2 py-1 text-xs flex items-center justify-center gap-1">
                                 <span>📂</span><span>当前浏览目录</span>
                             </button>
-                            <button @click="selectFolder('根目录')" :class="selectedPath === '根目录' ? 'btn-primary' : 'btn-secondary'" class="flex-1 px-2 py-1 text-xs flex items-center justify-center gap-1">
+                            <button @click="selectFolder('根目录')" :class="isSelected('根目录') ? 'btn-primary' : 'btn-secondary'" class="flex-1 px-2 py-1 text-xs flex items-center justify-center gap-1">
                                 <span>🏠</span><span>根目录</span>
                             </button>
                         </div>
                         <!-- 树形列表 -->
                         <div class="custom-scrollbar" :style="`max-height: ${maxHeight}; border-radius: 0.5rem; border: 1px solid var(--border-light); overflow-y: auto; background: var(--bg-sub); padding: 0.25rem 0;`">
                             <template x-for="folder in folderTree" :key="folder.path">
-                                <div x-show="folder.visible" @click="selectFolder(folder.path)" class="flex items-center text-sm cursor-pointer transition-colors" :class="[selectedPath === folder.path ? 'bg-[var(--accent-main)] text-white' : 'hover:bg-[var(--bg-hover)] text-[var(--text-main)]']" :style="`padding: 0.4rem 0.75rem; padding-left: ${0.75 + Math.min(folder.level, 3) * 0.75}rem;`">
+                                <div x-show="folder.visible" @click="selectFolder(folder.path)" class="flex items-center text-sm cursor-pointer transition-colors group" :class="[String(selectedPath) === String(folder.path) ? 'bg-[var(--accent-main)] text-white' : 'hover:bg-[var(--bg-hover)] text-[var(--text-main)]']" :style="`padding: 0.4rem 0.75rem; padding-left: ${0.75 + Math.min(folder.level, 3) * 0.75}rem;`">
+                                    <!-- 展开/收起按钮 -->
+                                    <button 
+                                        x-show="folder.hasChildren"
+                                        @click.stop="toggleFolder(folder.path, $event)"
+                                        class="w-6 h-6 flex items-center justify-center opacity-70 hover:opacity-100 mr-1"
+                                        style="background:none; border:none; color:inherit; cursor:pointer; flex-shrink: 0;">
+                                        <span x-text="folder.expanded ? '▼' : '▶'" style="font-size: 10px;"></span>
+                                    </button>
+                                    <span x-show="!folder.hasChildren" 
+                                        class="w-6 h-6 mr-1"></span>
                                     <span class="mr-2">📁</span>
                                     <span class="truncate" x-text="folder.name"></span>
                                 </div>
