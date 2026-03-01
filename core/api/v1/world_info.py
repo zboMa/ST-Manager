@@ -180,7 +180,7 @@ def api_list_world_infos():
         current_wi_folder = _resolve_wi_dir(cfg)
             
         if not os.path.exists(current_wi_folder):
-            try: os.makedirs(current_wi_folder)
+            try: os.makedirs(current_wi_folder, exist_ok=True)
             except: pass
 
         # ===== [CACHE] key = type + search（未分页 items）=====
@@ -485,8 +485,7 @@ def api_create_world_info():
 
         cfg = load_config()
         target_dir = _resolve_wi_dir(cfg)
-        if not os.path.exists(target_dir):
-            os.makedirs(target_dir)
+        os.makedirs(target_dir, exist_ok=True)
 
         final_path = os.path.join(target_dir, f"{safe_name}.json")
         base, ext = os.path.splitext(final_path)
@@ -535,8 +534,7 @@ def api_upload_world_info():
         raw_wi_dir = cfg.get('world_info_dir', 'lorebooks')
         target_dir = raw_wi_dir if os.path.isabs(raw_wi_dir) else os.path.join(BASE_DIR, raw_wi_dir)
         
-        if not os.path.exists(target_dir):
-            os.makedirs(target_dir)
+        os.makedirs(target_dir, exist_ok=True)
 
         success_count = 0
         failed_list = []
@@ -772,7 +770,7 @@ def api_save_world_info():
             cfg = load_config()
             raw_wi = cfg.get('world_info_dir', 'lorebooks')
             current_wi_folder = raw_wi if os.path.isabs(raw_wi) else os.path.join(BASE_DIR, raw_wi)
-            if not os.path.exists(current_wi_folder): os.makedirs(current_wi_folder)
+            os.makedirs(current_wi_folder, exist_ok=True)
             # 保存到全局目录
             filename = f"{name}.json".replace('/', '_').replace('\\', '_')
             final_path = os.path.join(current_wi_folder, filename)
@@ -912,8 +910,7 @@ def api_migrate_lorebooks():
                                     is_wi = True
                             
                             if is_wi:
-                                if not os.path.exists(lore_target_dir):
-                                    os.makedirs(lore_target_dir)
+                                os.makedirs(lore_target_dir, exist_ok=True)
                                 
                                 dst_path = os.path.join(lore_target_dir, f)
                                 # 防重名

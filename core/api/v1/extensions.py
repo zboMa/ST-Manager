@@ -27,7 +27,7 @@ def _get_paths():
     # 确保目录存在
     for p in [regex_root, scripts_root, qr_root]:
         if not os.path.exists(p):
-            try: os.makedirs(p)
+            try: os.makedirs(p, exist_ok=True)
             except: pass
             
     return regex_root, scripts_root, qr_root

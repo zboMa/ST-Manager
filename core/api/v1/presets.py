@@ -47,7 +47,7 @@ def _get_presets_path():
     # 确保目录存在
     if not os.path.exists(presets_root):
         try:
-            os.makedirs(presets_root)
+            os.makedirs(presets_root, exist_ok=True)
         except Exception as e:
             logger.error(f"Failed to create presets directory: {e}")
     

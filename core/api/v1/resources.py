@@ -255,8 +255,7 @@ def api_upload_card_resource():
         else:
             target_base_dir = os.path.join(res_root, res_folder_name)
             
-        if not os.path.exists(target_base_dir):
-            os.makedirs(target_base_dir)
+        os.makedirs(target_base_dir, exist_ok=True)
 
         # 2. 分析文件类型并确定子目录
         raw_filename = file.filename
@@ -311,8 +310,7 @@ def api_upload_card_resource():
 
         # 3. 构建最终路径
         final_dir = os.path.join(target_base_dir, sub_dir.replace('/', os.sep))
-        if not os.path.exists(final_dir):
-            os.makedirs(final_dir)
+        os.makedirs(final_dir, exist_ok=True)
             
         save_path = os.path.join(final_dir, filename)
         
