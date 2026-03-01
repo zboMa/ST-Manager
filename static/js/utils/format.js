@@ -39,6 +39,70 @@ export function estimateTokens(text) {
     return Math.ceil(cjkCount + (otherCount / 3.5));
 }
 
+export const TOKEN_THRESHOLDS = Object.freeze({
+    CARD_WARN: 5000,
+    CARD_DANGER: 20000,
+    WI_DANGER: 10000,
+    EXTREME: 100000
+});
+
+export function getTokenLevel(tokenCount, thresholds = {}) {
+    const value = Number(tokenCount) || 0;
+    const warn = Number(thresholds.warn || 0);
+    const danger = Number(thresholds.danger || 0);
+    const extreme = Number(thresholds.extreme || TOKEN_THRESHOLDS.EXTREME);
+
+    if (value > extreme) return 'extreme';
+    if (danger > 0 && value > danger) return 'danger';
+    if (warn > 0 && value > warn) return 'warn';
+    return 'ok';
+}
+
+export function getDetailMobileTokenClass(tokenCount) {
+    const level = getTokenLevel(tokenCount, {
+        warn: TOKEN_THRESHOLDS.CARD_WARN,
+        danger: TOKEN_THRESHOLDS.CARD_DANGER,
+        extreme: TOKEN_THRESHOLDS.EXTREME
+    });
+
+    if (level === 'extreme') return 'text-red-300';
+    if (level === 'danger') return 'text-orange-300';
+    if (level === 'warn') return 'text-yellow-300';
+    return 'text-green-300';
+}
+
+export function getTopbarTokenLevelClass(tokenCount) {
+    return getTokenLevel(tokenCount, {
+        warn: TOKEN_THRESHOLDS.CARD_WARN,
+        danger: TOKEN_THRESHOLDS.CARD_DANGER,
+        extreme: TOKEN_THRESHOLDS.EXTREME
+    });
+}
+
+export function getCardGridTokenBadgeClass(tokenCount) {
+    const level = getTokenLevel(tokenCount, {
+        warn: TOKEN_THRESHOLDS.CARD_WARN,
+        danger: TOKEN_THRESHOLDS.CARD_DANGER,
+        extreme: TOKEN_THRESHOLDS.EXTREME
+    });
+
+    if (level === 'extreme') return 'text-red-300 border-red-500/70 bg-red-950/90';
+    if (level === 'danger') return 'text-orange-300 border-orange-500/50 bg-orange-900/80';
+    if (level === 'warn') return 'text-yellow-300 border-yellow-500/50 bg-yellow-900/80';
+    return 'text-green-300 border-green-500/50 bg-green-900/80';
+}
+
+export function getWiTokenClass(tokenCount, lowClass = 'text-green-400') {
+    const level = getTokenLevel(tokenCount, {
+        danger: TOKEN_THRESHOLDS.WI_DANGER,
+        extreme: TOKEN_THRESHOLDS.EXTREME
+    });
+
+    if (level === 'extreme') return 'text-red-400';
+    if (level === 'danger') return 'text-orange-400';
+    return lowClass;
+}
+
 // 计算世界书总 Token
 export function getTotalWiTokens(entries) {
     if (!entries || !Array.isArray(entries)) return 0;

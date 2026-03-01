@@ -13,6 +13,7 @@ import {
 } from '../api/card.js';
 
 import { batchUpdateTags } from '../api/system.js';
+import { getCardGridTokenBadgeClass } from '../utils/format.js';
 
 export default function cardGrid() {
     return {
@@ -34,6 +35,7 @@ export default function cardGrid() {
 
         dragOverMain: false,
         dragCounter: 0,
+        getCardGridTokenBadgeClass,
 
         get selectedIds() { return this.$store.global.viewState.selectedIds; },
         set selectedIds(val) { this.$store.global.viewState.selectedIds = val; return true; },

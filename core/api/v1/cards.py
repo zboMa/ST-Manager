@@ -45,6 +45,103 @@ logger = logging.getLogger(__name__)
 
 bp = Blueprint('cards', __name__)
 
+TAG_ORDER_KEY = '_tag_order_v1'
+
+
+def _normalize_tag_list(tags):
+    """Normalize tag list and keep input order (dedup)."""
+    if not isinstance(tags, (list, tuple, set)):
+        return []
+
+    out = []
+    seen = set()
+    for item in tags:
+        tag = str(item).strip()
+        if not tag or tag in seen:
+            continue
+        seen.add(tag)
+        out.append(tag)
+    return out
+
+
+def _get_tag_order(ui_data):
+    if not isinstance(ui_data, dict):
+        return []
+
+    raw = ui_data.get(TAG_ORDER_KEY)
+    if isinstance(raw, dict):
+        return _normalize_tag_list(raw.get('order', []))
+    if isinstance(raw, list):
+        # backward compatible: old plain list format
+        return _normalize_tag_list(raw)
+    return []
+
+
+def _is_tag_order_enabled(ui_data):
+    if not isinstance(ui_data, dict):
+        return False
+
+    raw = ui_data.get(TAG_ORDER_KEY)
+    if isinstance(raw, dict):
+        if 'enabled' in raw:
+            return bool(raw.get('enabled'))
+        # backward compatible: old dict format without enabled
+        return len(_normalize_tag_list(raw.get('order', []))) > 0
+    if isinstance(raw, list):
+        # backward compatible: old plain list format
+        return len(_normalize_tag_list(raw)) > 0
+    return False
+
+
+def _set_tag_order(ui_data, order, enabled=None):
+    if not isinstance(ui_data, dict):
+        return False
+
+    normalized = _normalize_tag_list(order)
+    prev = ui_data.get(TAG_ORDER_KEY)
+    prev_norm = _get_tag_order(ui_data)
+    prev_enabled = _is_tag_order_enabled(ui_data)
+    next_enabled = prev_enabled if enabled is None else bool(enabled)
+
+    if prev_norm == normalized and prev_enabled == next_enabled and isinstance(prev, dict):
+        return False
+
+    ui_data[TAG_ORDER_KEY] = {
+        'order': normalized,
+        'enabled': next_enabled,
+        'updated_at': int(time.time())
+    }
+    return True
+
+
+def _apply_tag_order(tags, order):
+    """Apply persisted order to a tag list, unknown tags append at end."""
+    tags_norm = _normalize_tag_list(tags)
+    if not tags_norm:
+        return []
+
+    order_norm = _normalize_tag_list(order)
+    if not order_norm:
+        return tags_norm
+
+    tag_set = set(tags_norm)
+    ordered = [t for t in order_norm if t in tag_set]
+    ordered_set = set(ordered)
+    unknown = [t for t in tags_norm if t not in ordered_set]
+    unknown.sort(key=lambda x: x.lower())
+    ordered.extend(unknown)
+    return ordered
+
+
+def _append_new_tags_to_order(order, tags_to_add):
+    base = _normalize_tag_list(order)
+    seen = set(base)
+    for tag in _normalize_tag_list(tags_to_add):
+        if tag not in seen:
+            base.append(tag)
+            seen.add(tag)
+    return base
+
 # === 辅助函数：合并 Tag 逻辑 ===
 def _merge_tags_into_new_info(old_path, new_info):
     """
@@ -69,10 +166,13 @@ def _merge_tags_into_new_info(old_path, new_info):
         new_tags = new_data.get('tags', []) or []
         if isinstance(new_tags, str): new_tags = new_tags.split(',')
         
-        # 合并去重
-        merged_set = set([str(t).strip() for t in old_tags if str(t).strip()])
-        merged_set.update([str(t).strip() for t in new_tags if str(t).strip()])
-        final_tags = sorted(list(merged_set))
+        # 合并去重（保留旧顺序，新增项追加到末尾）
+        final_tags = _normalize_tag_list(old_tags)
+        existing = set(final_tags)
+        for tag in _normalize_tag_list(new_tags):
+            if tag not in existing:
+                final_tags.append(tag)
+                existing.add(tag)
         
         # 更新新数据对象 (同时兼容 V2/V3 结构)
         if 'data' in new_info:
@@ -282,7 +382,17 @@ def api_list_cards():
     for c in candidates:
         for t in c['tags']:
             sidebar_tags_set.add(t)
-    sidebar_tags = sorted(list(sidebar_tags_set))
+
+    ui_data_for_order = load_ui_data()
+    persisted_tag_order = _get_tag_order(ui_data_for_order)
+    use_custom_tag_order = _is_tag_order_enabled(ui_data_for_order)
+
+    if use_custom_tag_order:
+        sidebar_tags = _apply_tag_order(list(sidebar_tags_set), persisted_tag_order)
+        global_tags = _apply_tag_order(ctx.cache.global_tags or [], persisted_tag_order)
+    else:
+        sidebar_tags = sorted(list(sidebar_tags_set), key=lambda x: str(x).lower())
+        global_tags = sorted(list(ctx.cache.global_tags or []), key=lambda x: str(x).lower())
 
     if fav_filter == 'included':
         candidates = [c for c in candidates if c.get('is_favorite')]
@@ -361,7 +471,7 @@ def api_list_cards():
     
     return jsonify({
         "cards": paginated,
-        "global_tags": ctx.cache.global_tags, 
+        "global_tags": global_tags,
         "sidebar_tags": sidebar_tags,              
         "all_folders": [f['path'] for f in sorted([{'path': p} for p in safe_folders], key=lambda x: x['path'])],
         "category_counts": ctx.cache.category_counts,
@@ -370,6 +480,42 @@ def api_list_cards():
         "page": page,
         "page_size": page_size
     })
+
+
+@bp.route('/api/tag_order', methods=['GET'])
+def api_get_tag_order():
+    try:
+        ui_data = load_ui_data()
+        return jsonify({
+            'success': True,
+            'order': _get_tag_order(ui_data),
+            'enabled': _is_tag_order_enabled(ui_data)
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'msg': str(e)})
+
+
+@bp.route('/api/tag_order', methods=['POST'])
+def api_save_tag_order():
+    try:
+        payload = request.json or {}
+        order = _normalize_tag_list(payload.get('order', []))
+        enabled = payload.get('enabled', None)
+        if len(order) > 10000:
+            return jsonify({'success': False, 'msg': '标签数量过多'}), 400
+
+        ui_data = load_ui_data()
+        changed = _set_tag_order(ui_data, order, enabled=enabled)
+        if changed:
+            save_ui_data(ui_data)
+
+        return jsonify({
+            'success': True,
+            'order': _get_tag_order(ui_data),
+            'enabled': _is_tag_order_enabled(ui_data)
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'msg': str(e)})
 
 # 切换收藏状态
 @bp.route('/api/toggle_favorite', methods=['POST'])
@@ -491,12 +637,10 @@ def api_update_card():
                 target['extensions'] = data.get('extensions')
                 file_content_modified = True
 
-            new_tags = data.get('tags') or []
-            old_tags = target.get('tags') or []
-            set_new = set(t.strip() for t in new_tags if t and t.strip())
-            set_old = set(t.strip() for t in old_tags if t and t.strip())
-            if set_new != set_old:
-                final_tags = list(set_new)
+            new_tags = _normalize_tag_list(data.get('tags') or [])
+            old_tags = _normalize_tag_list(target.get('tags') or [])
+            if new_tags != old_tags:
+                final_tags = new_tags
                 target['tags'] = final_tags
                 file_content_modified = True
                 if target is not info and 'tags' in info: info['tags'] = final_tags
@@ -2535,11 +2679,17 @@ def api_delete_tags():
 
         conn.commit()
 
-        # 如果你有 ui_data['all_tags'] 这种历史字段，可以保留原逻辑；没有也不会影响
+        # 清理持久化标签顺序中已删除项
         ui_data = load_ui_data()
+        current_order = _get_tag_order(ui_data)
+        next_order = [t for t in current_order if t not in tags_to_delete_set]
+        if next_order != current_order:
+            _set_tag_order(ui_data, next_order)
+
+        # 如果你有 ui_data['all_tags'] 这种历史字段，可以保留原逻辑；没有也不会影响
         if isinstance(ui_data, dict) and 'all_tags' in ui_data and isinstance(ui_data['all_tags'], list):
             ui_data['all_tags'] = [tag for tag in ui_data['all_tags'] if tag not in tags_to_delete_set]
-            save_ui_data(ui_data)
+        save_ui_data(ui_data)
 
         # 尤其有 bundle 聚合显示时），可以触发一次 reload
         schedule_reload(reason="delete_tags")
@@ -2568,6 +2718,7 @@ def api_batch_tags():
                 return jsonify({"success": False, "msg": "非法卡片路径"}), 400
 
         updated = 0
+        all_added_tags = []
 
         # 数据库连接 (为了持久化标签变更，防止重启丢失)
         # 虽然写入了 PNG，但数据库也有一份 tags 字段，需要同步
@@ -2587,15 +2738,23 @@ def api_batch_tags():
             if isinstance(tags, str):
                 tags = [t.strip() for t in tags.split(',') if t.strip()]
 
-            before = set(tags)
-            after = before.copy()
+            after = _normalize_tag_list(tags)
+            before_list = list(after)
 
-            after |= set(add_tags)
-            after -= set(remove_tags)
+            remove_set = set(_normalize_tag_list(remove_tags))
+            if remove_set:
+                after = [t for t in after if t not in remove_set]
 
-            after = list(after)
+            add_norm = _normalize_tag_list(add_tags)
+            if add_norm:
+                existing = set(after)
+                for t in add_norm:
+                    if t not in existing:
+                        after.append(t)
+                        existing.add(t)
+                        all_added_tags.append(t)
 
-            if after != list(before):
+            if after != before_list:
                 data["tags"] = after
                 info["tags"] = after
                 write_card_metadata(file_path, info)
@@ -2606,6 +2765,12 @@ def api_batch_tags():
                 updated += 1
 
         conn.commit()
+
+        if all_added_tags:
+            ui_data = load_ui_data()
+            merged_order = _append_new_tags_to_order(_get_tag_order(ui_data), all_added_tags)
+            if _set_tag_order(ui_data, merged_order):
+                save_ui_data(ui_data)
 
         return jsonify({"success": True, "updated": updated})
     except Exception as e:

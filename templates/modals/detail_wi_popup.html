@@ -28,7 +28,9 @@
                         <span class="opacity-40">|</span>
                         <span>Entries: <span class="font-bold text-[var(--text-main)]"
                                 x-text="wiEntries.length">0</span></span>
-                        <span>Tokens: <span class="font-bold text-green-500" x-text="totalTokens">0</span></span>
+                        <span>Tokens: <span class="font-bold"
+                                :class="getWiTokenClass(totalTokens, 'text-green-500')"
+                                x-text="totalTokens">0</span></span>
                     </div>
                     <div x-show="isTruncated"
                         class="mt-1 flex items-center gap-2 text-[10px] text-yellow-400 font-mono">

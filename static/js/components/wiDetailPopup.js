@@ -7,7 +7,7 @@ import { wiHelpers } from '../utils/wiHelpers.js';
 import { deleteWorldInfo, getWorldInfoDetail } from '../api/wi.js';
 import { getCardDetail } from '../api/card.js';
 import { normalizeWiBook } from '../utils/data.js';
-import { formatWiKeys, estimateTokens, getTotalWiTokens } from '../utils/format.js';
+import { formatWiKeys, estimateTokens, getTotalWiTokens, getWiTokenClass } from '../utils/format.js';
 
 export default function wiDetailPopup() {
     return {
@@ -40,6 +40,7 @@ export default function wiDetailPopup() {
         // 引入工具函数
         formatWiKeys,
         estimateTokens,
+        getWiTokenClass,
         ...wiHelpers,
 
         init() {

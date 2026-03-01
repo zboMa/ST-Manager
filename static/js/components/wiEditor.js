@@ -18,7 +18,7 @@ import { createSnapshot as apiCreateSnapshot, cleanupInitBackups as apiCleanupIn
 import { normalizeWiBook, toStV3Worldbook, getCleanedV3Data, updateWiKeys } from '../utils/data.js';
 import { createAutoSaver } from '../utils/autoSave.js';
 import { wiHelpers } from '../utils/wiHelpers.js';
-import { formatWiKeys, estimateTokens, getTotalWiTokens } from '../utils/format.js';
+import { formatWiKeys, estimateTokens, getTotalWiTokens, getWiTokenClass } from '../utils/format.js';
 
 export default function wiEditor() {
     const autoSaver = createAutoSaver();
@@ -93,6 +93,7 @@ export default function wiEditor() {
 
         formatWiKeys,
         estimateTokens,
+        getWiTokenClass,
         updateWiKeys,
         ...wiHelpers,
 

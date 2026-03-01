@@ -51,7 +51,7 @@
                     title="预估总 Token">
                     <span class="text-[9px] text-gray-500 uppercase font-bold">Tokens</span>
                     <span class="text-xs font-mono font-bold text-neon"
-                        :class="(typeof getTotalWiTokens === 'function' && getTotalWiTokens() > 10000) ? 'text-red-400' : 'text-green-400'"
+                        :class="typeof getTotalWiTokens === 'function' ? getWiTokenClass(getTotalWiTokens(), 'text-green-400') : 'text-green-400'"
                         x-text="typeof getTotalWiTokens === 'function' ? getTotalWiTokens() : 0">
                     </span>
                 </div>

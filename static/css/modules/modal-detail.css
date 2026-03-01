@@ -338,7 +338,12 @@ html.light-mode .detail-thumb-label {
 }
 
 .detail-token-value.danger {
-    color: #ef4444
+    color: #fdba74
+}
+
+.detail-token-value.extreme {
+    color: #ef4444;
+    text-shadow: 0 0 10px rgba(239, 68, 68, 0.45)
 }
 
 .detail-toolbar-group {
@@ -602,13 +607,24 @@ html.light-mode .detail-thumb-label {
     transition: all 0.15s
 }
 
+.detail-tag-handle {
+    font-size: 10px;
+    opacity: 0.75;
+    cursor: grab;
+}
+
+.detail-tag-dragging {
+    opacity: 0.55;
+}
+
 .detail-tag:hover {
     transform: translateY(-1px);
     border-color: rgba(124, 58, 237, 0.6)
 }
 
 .detail-tag-x {
-    opacity: 0.75
+    opacity: 0.75;
+    cursor: pointer
 }
 
 .detail-tag:hover .detail-tag-x {
@@ -1158,7 +1174,12 @@ html.light-mode .toolbox-btn.purple {
 }
 
 .topbar-token-value.danger {
-    color: #ef4444
+    color: #fdba74
+}
+
+.topbar-token-value.extreme {
+    color: #ef4444;
+    text-shadow: 0 0 10px rgba(239, 68, 68, 0.45)
 }
 
 .wi-raw-section {

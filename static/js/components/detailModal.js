@@ -34,7 +34,14 @@ import {
 } from '../api/resource.js';
 
 import { getCleanedV3Data, updateWiKeys, toStV3Worldbook } from '../utils/data.js';
-import { formatDate, getVersionName, estimateTokens, formatWiKeys } from '../utils/format.js';
+import {
+    formatDate,
+    getVersionName,
+    estimateTokens,
+    formatWiKeys,
+    getDetailMobileTokenClass,
+    getTopbarTokenLevelClass
+} from '../utils/format.js';
 import { updateShadowContent } from '../utils/dom.js';
 import { createAutoSaver } from '../utils/autoSave.js'; 
 import { wiHelpers } from '../utils/wiHelpers.js';
@@ -88,6 +95,7 @@ export default function detailModal() {
         altIdx: 0,
         rawMetadataContent: 'Loading...',
         isEditMode: false, // 编辑模式开关，默认为阅览模式
+        detailTagDragIndex: null,
 
         // 资源文件列表状态
         resourceLorebooks: [],
@@ -108,6 +116,8 @@ export default function detailModal() {
         estimateTokens,
         updateShadowContent,
         formatWiKeys,
+        getDetailMobileTokenClass,
+        getTopbarTokenLevelClass,
         updateWiKeys,
         ...wiHelpers,
 
@@ -553,6 +563,7 @@ export default function detailModal() {
             // 赋值给编辑器（带结构兜底，避免模板读取 undefined）
             this.editingData = this._normalizeEditingDataShape(rawData);
             this.altIdx = 0;
+            this.detailTagDragIndex = null;
             this.editingData.filename = c.filename || this.editingData.filename;
 
             // 显示模态框
@@ -1267,6 +1278,51 @@ export default function detailModal() {
             const i = this.editingData.tags.indexOf(t);
             if (i > -1) this.editingData.tags.splice(i, 1);
             else this.editingData.tags.push(t);
+        },
+
+        removeTagAt(index) {
+            if (!Array.isArray(this.editingData.tags)) return;
+            if (index < 0 || index >= this.editingData.tags.length) return;
+            this.editingData.tags.splice(index, 1);
+        },
+
+        onDetailTagDragStart(e, index) {
+            if (!this.isEditMode) return;
+            this.detailTagDragIndex = index;
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', String(index));
+        },
+
+        onDetailTagDragOver(e) {
+            if (!this.isEditMode || this.detailTagDragIndex === null) return;
+            e.preventDefault();
+        },
+
+        onDetailTagDrop(e, targetIndex) {
+            if (!this.isEditMode) return;
+            e.preventDefault();
+
+            const srcRaw = e.dataTransfer.getData('text/plain');
+            let fromIndex = this.detailTagDragIndex;
+            if ((fromIndex === null || fromIndex === undefined) && srcRaw !== '') {
+                fromIndex = parseInt(srcRaw, 10);
+            }
+
+            if (!Array.isArray(this.editingData.tags)) return;
+            if (fromIndex === null || Number.isNaN(fromIndex)) return;
+            if (fromIndex < 0 || fromIndex >= this.editingData.tags.length) return;
+            if (targetIndex < 0 || targetIndex >= this.editingData.tags.length) return;
+            if (fromIndex === targetIndex) return;
+
+            const list = [...this.editingData.tags];
+            const [moved] = list.splice(fromIndex, 1);
+            list.splice(targetIndex, 0, moved);
+            this.editingData.tags = list;
+            this.detailTagDragIndex = null;
+        },
+
+        onDetailTagDragEnd() {
+            this.detailTagDragIndex = null;
         },
 
         addTag() {

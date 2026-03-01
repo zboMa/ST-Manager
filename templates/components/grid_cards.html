@@ -73,7 +73,7 @@
                         </a>
                         <!-- Token 计数 -->
                         <div x-show="card.token_count > 0"
-                            :class="card.token_count > 20000 ? 'text-red-300 border-red-500/50 bg-red-900/80' : (card.token_count > 5000 ? 'text-yellow-300 border-yellow-500/50 bg-yellow-900/80' : 'text-green-300 border-green-500/50 bg-green-900/80')"
+                            :class="getCardGridTokenBadgeClass(card.token_count)"
                             style="position: absolute; bottom: 2rem; left: 0.5rem; z-index: 10; border: 1px solid; border-radius: 4px; padding: 1px 6px; font-size: 10px; font-weight: bold; backdrop-filter: blur(2px); pointer-events: none;">
                             🪙 <span class="text-neon" x-text="card.token_count"></span> T
                         </div>

@@ -68,6 +68,27 @@
     border-color: var(--text-main)
 }
 
+.tag-chip-sortable {
+    user-select: none;
+    cursor: grab;
+}
+
+.tag-chip-sortable:active {
+    cursor: grabbing;
+}
+
+.tag-chip-drag-handle {
+    margin-right: 0.45rem;
+    opacity: 0.7;
+    font-size: 0.72rem;
+}
+
+.tag-chip-sort-over {
+    border-color: var(--accent-main) !important;
+    box-shadow: 0 0 0 1px var(--accent-faint);
+    transform: translateY(-1px);
+}
+
 .sidebar-tag-chip.excluded {
     background-color: rgba(220, 38, 38, 0.2) !important;
     color: #fca5a5 !important;

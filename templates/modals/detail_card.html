@@ -118,7 +118,7 @@
                         class="detail-mobile-token-overlay">
                         <div class="detail-mobile-token-item">
                             <span class="detail-mobile-token-value text-neon"
-                                :class="totalTokenCount > 20000 ? 'text-red-300' : (totalTokenCount > 5000 ? 'text-yellow-300' : 'text-green-300')"
+                                :class="getDetailMobileTokenClass(totalTokenCount)"
                                 x-text="'🪙' + totalTokenCount"></span>
                         </div>
                         <div class="detail-mobile-token-item">
@@ -250,7 +250,7 @@
                     <div class="topbar-token" title="预估 Token（含世界书）">
                         <span class="topbar-token-label">Tokens</span>
                         <span class="topbar-token-value text-neon"
-                            :class="totalTokenCount > 20000 ? 'danger' : (totalTokenCount > 5000 ? 'warn' : 'ok')"
+                            :class="getTopbarTokenLevelClass(totalTokenCount)"
                             x-text="totalTokenCount"></span>
                     </div>
 
@@ -675,10 +675,17 @@
                             </div>
 
                             <div class="detail-taglist">
-                                <template x-for="tag in editingData.tags" :key="tag">
-                                    <button type="button" @click="toggleTag(tag)" class="detail-tag">
+                                <template x-for="(tag, index) in editingData.tags" :key="tag + '-' + index">
+                                    <button type="button" class="detail-tag" :draggable="isEditMode"
+                                        @click="if (!isEditMode) toggleTag(tag)"
+                                        @dragstart="onDetailTagDragStart($event, index)"
+                                        @dragover="onDetailTagDragOver($event)"
+                                        @drop="onDetailTagDrop($event, index)"
+                                        @dragend="onDetailTagDragEnd()"
+                                        :class="isEditMode && detailTagDragIndex === index ? 'detail-tag-dragging' : ''">
+                                        <span x-show="isEditMode" class="detail-tag-handle" title="拖拽排序">☰</span>
                                         <span x-text="tag"></span>
-                                        <span class="detail-tag-x">✕</span>
+                                        <span x-show="isEditMode" class="detail-tag-x" @click.stop="removeTagAt(index)">✕</span>
                                     </button>
                                 </template>
 
