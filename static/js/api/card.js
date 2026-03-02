@@ -42,6 +42,17 @@ export async function updateCard(payload) {
     return res.json();
 }
 
+// 预览全局标签合并（不写入文件）
+export async function previewMergedTags(payload) {
+    // payload: { id, tags: [] }
+    const res = await fetch('/api/preview_merge_tags', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    });
+    return res.json();
+}
+
 // 上传/更新角色卡文件 (FormData)
 export async function updateCardFile(formData) {
     const res = await fetch('/api/update_card_file', {

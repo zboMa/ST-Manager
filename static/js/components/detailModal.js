@@ -6,6 +6,7 @@
 import { 
     getCardDetail, 
     updateCard, 
+    previewMergedTags,
     updateCardFile, 
     updateCardFileFromUrl, 
     changeCardImage,
@@ -767,6 +768,15 @@ export default function detailModal() {
                         window.dispatchEvent(new CustomEvent('refresh-card-list'));
                     }
 
+                    if (res.tag_merge && res.tag_merge.triggered && res.tag_merge.changed) {
+                        const replacedCount = Array.isArray(res.tag_merge.replacements)
+                            ? res.tag_merge.replacements.length
+                            : 0;
+                        if (replacedCount > 0) {
+                            this.$store.global.showToast(`🏷️ 已按全局规则合并标签（${replacedCount} 项）`, 2600);
+                        }
+                    }
+
                     this.$store.global.showToast("💾 保存成功", 2000);
                     
                     // 刷新详情
@@ -1353,15 +1363,38 @@ export default function detailModal() {
             const splitPattern = slashAsSeparator ? /[,|/，\n]/ : /[,|，\n]/;
             const tagsToAdd = rawInput.split(splitPattern).map(t => t.trim()).filter(t => t);
 
+            let changed = false;
             tagsToAdd.forEach(val => {
                 // 查重并添加
                 if (!this.editingData.tags.includes(val)) {
                     this.editingData.tags.push(val);
+                    changed = true;
                 }
             });
             
             // 清空输入框
             this.newTagInput = '';
+
+            if (changed) {
+                previewMergedTags({
+                    id: this.editingData.id,
+                    tags: this.editingData.tags
+                }).then(res => {
+                    if (!res.success || !Array.isArray(res.tags)) return;
+
+                    const before = JSON.stringify(this.editingData.tags || []);
+                    const after = JSON.stringify(res.tags || []);
+                    if (before !== after) {
+                        this.editingData.tags = res.tags;
+                        const replacedCount = Array.isArray(res.tag_merge?.replacements)
+                            ? res.tag_merge.replacements.length
+                            : 0;
+                        if (replacedCount > 0) {
+                            this.$store.global.showToast(`🏷️ 标签已自动合并（${replacedCount} 项）`, 2200);
+                        }
+                    }
+                }).catch(() => {});
+            }
         },
 
         prevAlt() {

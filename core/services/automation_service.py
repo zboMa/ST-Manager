@@ -1,15 +1,18 @@
 import logging
+import os
 from core.config import load_config
 from core.automation.manager import rule_manager
 from core.automation.engine import AutomationEngine
 from core.automation.executor import AutomationExecutor
 from core.automation.constants import (
     ACT_FETCH_FORUM_TAGS,
+    ACT_MERGE_TAGS,
     ACT_SET_CHAR_NAME_FROM_FILENAME,
     ACT_SET_WI_NAME_FROM_FILENAME,
     ACT_SET_FILENAME_FROM_CHAR_NAME,
     ACT_SET_FILENAME_FROM_WI_NAME,
 )
+from core.automation.tag_merge import apply_merge_actions_to_tags
 from core.context import ctx
 from core.data.ui_store import load_ui_data
 from core.services.card_service import resolve_ui_key
@@ -19,6 +22,108 @@ logger = logging.getLogger(__name__)
 
 engine = AutomationEngine()
 executor = AutomationExecutor()
+
+
+def _build_runtime_from_active_ruleset():
+    cfg = load_config()
+    active_id = cfg.get('active_automation_ruleset')
+
+    if not active_id:
+        return None
+
+    ruleset = rule_manager.get_ruleset(active_id)
+    if not ruleset:
+        return None
+
+    return {
+        'ruleset_id': active_id,
+        'ruleset': ruleset,
+        'slash_as_separator': bool(cfg.get('automation_slash_is_tag_separator', False))
+    }
+
+
+def get_global_tag_merge_runtime():
+    """
+    获取全局规则集中的标签合并运行时上下文。
+    返回 None 表示未启用全局规则集或规则集不存在。
+    """
+    try:
+        return _build_runtime_from_active_ruleset()
+    except Exception as e:
+        logger.error(f"Build global tag merge runtime error: {e}")
+        return None
+
+
+def auto_run_tag_merge_on_tagging(card_id, tags, ui_data=None, runtime=None):
+    """
+    在“手动打标”场景下应用全局规则集里的 merge_tags 动作。
+    典型触发点：批量标签管理、详情页编辑标签并保存。
+    """
+    try:
+        rt = runtime or _build_runtime_from_active_ruleset()
+        if not rt:
+            return None
+
+        ruleset = rt.get('ruleset')
+        if not ruleset:
+            return None
+
+        slash_as_separator = bool(rt.get('slash_as_separator', False))
+
+        card_obj = ctx.cache.id_map.get(card_id)
+        if not card_obj:
+            parent_dir = os.path.dirname(card_id).replace('\\', '/')
+            bundle_main_id = ctx.cache.bundle_map.get(parent_dir)
+            if bundle_main_id:
+                card_obj = ctx.cache.id_map.get(bundle_main_id)
+
+        if not card_obj:
+            logger.debug(f"Tag merge skipped, card not found in cache: {card_id}")
+            return None
+
+        if ui_data is None:
+            ui_data = load_ui_data()
+
+        context_data = dict(card_obj)
+        context_data['tags'] = list(tags or [])
+
+        ui_key = resolve_ui_key(card_id)
+        ui_info = ui_data.get(ui_key, {})
+        context_data['ui_summary'] = ui_info.get('summary', '')
+        context_data['source_link'] = ui_info.get('link', '')
+
+        plan_raw = engine.evaluate(context_data, ruleset, match_if_no_conditions=True)
+        merge_actions = [
+            act for act in plan_raw.get('actions', [])
+            if isinstance(act, dict) and act.get('type') == ACT_MERGE_TAGS
+        ]
+
+        if not merge_actions:
+            return {
+                'run': True,
+                'actions': 0,
+                'result': {
+                    'tags': list(tags or []),
+                    'changed': False,
+                    'replacements': [],
+                    'replace_rules': {}
+                }
+            }
+
+        merge_result = apply_merge_actions_to_tags(
+            tags,
+            merge_actions,
+            slash_as_separator=slash_as_separator
+        )
+
+        return {
+            'run': True,
+            'actions': len(merge_actions),
+            'result': merge_result
+        }
+    except Exception as e:
+        logger.error(f"Auto-run tag merge error: {e}")
+        return None
 
 def auto_run_rules_on_card(card_id):
     """
@@ -96,6 +201,9 @@ def auto_run_rules_on_card(card_id):
                 # 导入时跳过论坛标签抓取，因为此时 URL 为空
                 # 此动作仅在用户更新来源链接时触发
                 continue
+            elif t == ACT_MERGE_TAGS:
+                # 标签合并仅在手动打标场景触发，导入时跳过
+                continue
             
         # 执行
         res = executor.apply_plan(card_id, exec_plan, ui_data)
@@ -172,6 +280,44 @@ def auto_run_forum_tags_on_link_update(card_id):
 
         # 执行
         res = executor.apply_plan(card_id, exec_plan, ui_data)
+
+        # 抓取论坛标签后，联动执行标签合并（如果全局规则中配置了 merge_tags）
+        current_card = ctx.cache.id_map.get(card_id)
+        final_tags = list((current_card or {}).get('tags') or res.get('tags_added') or [])
+        tag_merge = None
+
+        if final_tags:
+            merge_res = auto_run_tag_merge_on_tagging(card_id, final_tags, ui_data=ui_data, runtime={
+                'ruleset_id': active_id,
+                'ruleset': ruleset,
+                'slash_as_separator': bool(cfg.get('automation_slash_is_tag_separator', False))
+            })
+            merge_payload = (merge_res or {}).get('result') or {}
+
+            if merge_payload.get('changed'):
+                merged_tags = merge_payload.get('tags') or final_tags
+                if merged_tags != final_tags:
+                    from core.services.card_service import modify_card_attributes_internal
+
+                    remove_tags = [t for t in final_tags if t not in merged_tags]
+                    add_tags = [t for t in merged_tags if t not in final_tags]
+                    if add_tags or remove_tags:
+                        ok = modify_card_attributes_internal(card_id, add_tags=add_tags, remove_tags=remove_tags)
+                        if ok:
+                            final_tags = list(merged_tags)
+
+            if merge_res and int(merge_res.get('actions') or 0) > 0:
+                tag_merge = {
+                    'triggered': True,
+                    'changed': bool(merge_payload.get('changed')),
+                    'replacements': merge_payload.get('replacements', []) or [],
+                    'replace_rules': merge_payload.get('replace_rules', {}) or {},
+                    'actions': int(merge_res.get('actions') or 0)
+                }
+
+        res['final_tags'] = final_tags
+        if tag_merge:
+            res['tag_merge'] = tag_merge
 
         logger.info(f"Auto-run forum tags on link update for {card_id}: {res}")
         return {"run": True, "result": res}

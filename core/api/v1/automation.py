@@ -9,6 +9,7 @@ from core.automation.executor import AutomationExecutor
 from core.automation.constants import (
     FIELD_MAP,
     ACT_FETCH_FORUM_TAGS,
+    ACT_MERGE_TAGS,
     ACT_SET_CHAR_NAME_FROM_FILENAME,
     ACT_SET_WI_NAME_FROM_FILENAME,
     ACT_SET_FILENAME_FROM_CHAR_NAME,
@@ -260,6 +261,9 @@ def execute_rules():
                         exec_plan['fetch_forum_tags'] = v
                     else:
                         exec_plan['fetch_forum_tags'] = {}
+                elif t == ACT_MERGE_TAGS:
+                    # 标签合并只在“手动打标”流程触发，手动执行规则时跳过
+                    continue
             
             # 4. 执行
             res = executor.apply_plan(cid, exec_plan, ui_data)

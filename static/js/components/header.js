@@ -337,7 +337,12 @@ export default function header() {
                 remove: this.filterTags
             }).then(res => {
                 if (res.success) {
-                    alert(`成功更新 ${res.updated} 张卡片`);
+                    let message = `成功更新 ${res.updated} 张卡片`;
+                    const merge = res.tag_merge || {};
+                    if (merge.cards) {
+                        message += `\n全局标签合并已应用到 ${merge.cards} 张卡片`;
+                    }
+                    alert(message);
                     this.filterTags = []; // 清空筛选
                     window.dispatchEvent(new CustomEvent('refresh-card-list'));
                 } else {

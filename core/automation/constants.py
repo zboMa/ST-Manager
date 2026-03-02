@@ -60,6 +60,9 @@ ACT_SET_FILENAME_FROM_WI_NAME = "set_filename_from_wi_name"
 # 论坛标签抓取动作
 ACT_FETCH_FORUM_TAGS = "fetch_forum_tags"
 
+# 标签合并动作
+ACT_MERGE_TAGS = "merge_tags"
+
 # URL字段映射
 URL_FIELD_MAP = {
     "source_url": "extensions.source_url",  # 来源URL字段

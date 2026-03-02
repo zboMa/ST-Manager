@@ -70,7 +70,7 @@ export default function automationModal() {
                 if (res.success) {
                     this.globalRulesetId = newVal;
                     // 给用户一点反馈
-                    if (newVal) this.$store.global.showToast("✅ 已设为全局自动规则 (导入时生效)");
+                    if (newVal) this.$store.global.showToast("✅ 已设为全局自动规则 (按动作在不同场景触发)");
                     else this.$store.global.showToast("🚫 已关闭全局自动规则");
                 }
             });
@@ -149,6 +149,37 @@ export default function automationModal() {
                                         merge_mode: valueObj.merge_mode || 'merge'
                                     };
                                 }
+
+                                if (action.type === 'merge_tags') {
+                                    const rawValue = action.value;
+                                    if (rawValue && typeof rawValue === 'object' && !Array.isArray(rawValue)) {
+                                        const mapSource =
+                                            (rawValue.replace_rules && typeof rawValue.replace_rules === 'object')
+                                                ? rawValue.replace_rules
+                                                : ((rawValue.merge_rules && typeof rawValue.merge_rules === 'object')
+                                                    ? rawValue.merge_rules
+                                                    : null);
+
+                                        if (mapSource) {
+                                            action.value = Object.entries(mapSource)
+                                                .map(([from, to]) => `${from}→${to}`)
+                                                .join('|');
+                                        } else if (rawValue.source_tags && (rawValue.target_tag || rawValue.target)) {
+                                            action.value = `${rawValue.source_tags}→${rawValue.target_tag || rawValue.target}`;
+                                        } else if (rawValue.from_tags && (rawValue.target_tag || rawValue.target)) {
+                                            action.value = `${rawValue.from_tags}→${rawValue.target_tag || rawValue.target}`;
+                                        } else {
+                                            action.value = Object.entries(rawValue)
+                                                .filter(([, to]) => to !== null && to !== undefined && to !== '')
+                                                .map(([from, to]) => `${from}→${to}`)
+                                                .join('|');
+                                        }
+                                    } else if (Array.isArray(rawValue)) {
+                                        action.value = rawValue.join('|');
+                                    } else {
+                                        action.value = (rawValue || '').toString();
+                                    }
+                                }
                             });
                         }
                     });
@@ -201,6 +232,10 @@ export default function automationModal() {
                             action.value = valueObj;
                             // 删除临时 config 对象
                             delete action.config;
+                        }
+
+                        if (action.type === 'merge_tags') {
+                            action.value = (action.value || '').toString().trim();
                         }
                     });
                 }

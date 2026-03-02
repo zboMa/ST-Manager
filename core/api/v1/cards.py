@@ -24,7 +24,12 @@ from core.consts import SIDECAR_EXTENSIONS
 from core.services.scan_service import suppress_fs_events
 from core.services.cache_service import schedule_reload, force_reload, update_card_cache
 from core.services.card_service import update_card_content, rename_folder_in_db, rename_folder_in_ui, resolve_ui_key, swap_skin_to_cover
-from core.services.automation_service import auto_run_rules_on_card, auto_run_forum_tags_on_link_update
+from core.services.automation_service import (
+    auto_run_rules_on_card,
+    auto_run_forum_tags_on_link_update,
+    auto_run_tag_merge_on_tagging,
+    get_global_tag_merge_runtime,
+)
 from core.services.wi_entry_history_service import (
     ensure_entry_uids,
     collect_previous_versions,
@@ -141,6 +146,36 @@ def _append_new_tags_to_order(order, tags_to_add):
             base.append(tag)
             seen.add(tag)
     return base
+
+
+def _apply_global_tag_merge_for_card(card_id, tags, ui_data=None, runtime=None):
+    """
+    在手动打标流程中应用全局规则集里的标签合并动作。
+    返回: (merged_tags, merge_info)
+    """
+    normalized = _normalize_tag_list(tags)
+    merge_info = {
+        'triggered': False,
+        'changed': False,
+        'replacements': [],
+        'replace_rules': {},
+        'actions': 0
+    }
+
+    merge_res = auto_run_tag_merge_on_tagging(card_id, normalized, ui_data=ui_data, runtime=runtime)
+    if not merge_res or not merge_res.get('run'):
+        return normalized, merge_info
+
+    result = merge_res.get('result') or {}
+    merged_tags = _normalize_tag_list(result.get('tags', normalized))
+
+    merge_info['triggered'] = True
+    merge_info['changed'] = bool(result.get('changed'))
+    merge_info['replacements'] = result.get('replacements', []) or []
+    merge_info['replace_rules'] = result.get('replace_rules', {}) or {}
+    merge_info['actions'] = int(merge_res.get('actions') or 0)
+
+    return merged_tags, merge_info
 
 # === 辅助函数：合并 Tag 逻辑 ===
 def _merge_tags_into_new_info(old_path, new_info):
@@ -599,6 +634,7 @@ def api_update_card():
         info = extract_card_info(old_full_path)
         file_content_modified = False
         wi_entry_history_records = []
+        tag_merge_info = None
 
         # =========================================================
         # 1. 元数据写入逻辑 (如果是设为封面，完全跳过此步骤)
@@ -637,8 +673,9 @@ def api_update_card():
                 target['extensions'] = data.get('extensions')
                 file_content_modified = True
 
-            new_tags = _normalize_tag_list(data.get('tags') or [])
+            requested_tags = _normalize_tag_list(data.get('tags') or [])
             old_tags = _normalize_tag_list(target.get('tags') or [])
+            new_tags = requested_tags
             if new_tags != old_tags:
                 final_tags = new_tags
                 target['tags'] = final_tags
@@ -996,16 +1033,18 @@ def api_update_card():
         if link_changed:
             try:
                 forum_tags_result = auto_run_forum_tags_on_link_update(return_new_id)
-                # 如果抓取成功并添加了标签，更新返回的卡片数据
-                if (forum_tags_result and forum_tags_result.get('run') and 
-                    forum_tags_result.get('result', {}).get('tags_added')):
-                    # 更新返回给前端的卡片数据中的标签
-                    added_tags = forum_tags_result['result']['tags_added']
+                if forum_tags_result and forum_tags_result.get('run'):
+                    result_payload = forum_tags_result.get('result', {}) or {}
+                    tag_merge_info = result_payload.get('tag_merge')
+
                     if final_return_obj and 'tags' in final_return_obj:
-                        # 合并现有标签和新标签（去重）
-                        existing_tags = set(final_return_obj['tags'] or [])
-                        existing_tags.update(added_tags)
-                        final_return_obj['tags'] = list(existing_tags)
+                        final_tags = result_payload.get('final_tags')
+                        if isinstance(final_tags, list):
+                            final_return_obj['tags'] = _normalize_tag_list(final_tags)
+                        elif result_payload.get('tags_added'):
+                            existing_tags = set(final_return_obj['tags'] or [])
+                            existing_tags.update(result_payload.get('tags_added') or [])
+                            final_return_obj['tags'] = list(existing_tags)
             except Exception as e:
                 logger.warning(f"链接更新后自动抓取论坛标签失败: {e}")
 
@@ -1017,7 +1056,8 @@ def api_update_card():
             "new_image_url": final_return_obj['image_url'] if final_return_obj else None,
             "updated_card": final_return_obj,
             "current_version_id": current_version_id,
-            "forum_tags_fetched": forum_tags_result.get('result') if forum_tags_result else None
+            "forum_tags_fetched": forum_tags_result.get('result') if forum_tags_result else None,
+            "tag_merge": tag_merge_info
         })
 
     except Exception as e:
@@ -2712,6 +2752,7 @@ def api_batch_tags():
         ids = request.json.get("card_ids", [])
         add_tags = request.json.get("add", []) or []
         remove_tags = request.json.get("remove", []) or []
+        trigger_merge = bool(request.json.get('trigger_merge', False))
 
         for cid in ids:
             if not _is_safe_rel_path(cid):
@@ -2719,6 +2760,11 @@ def api_batch_tags():
 
         updated = 0
         all_added_tags = []
+        tag_merge_applied_cards = 0
+        tag_merge_replacements = []
+
+        merge_runtime = get_global_tag_merge_runtime() if trigger_merge else None
+        shared_ui_data = load_ui_data() if merge_runtime else None
 
         # 数据库连接 (为了持久化标签变更，防止重启丢失)
         # 虽然写入了 PNG，但数据库也有一份 tags 字段，需要同步
@@ -2754,6 +2800,18 @@ def api_batch_tags():
                         existing.add(t)
                         all_added_tags.append(t)
 
+            if merge_runtime:
+                merged_tags, merge_info = _apply_global_tag_merge_for_card(
+                    cid,
+                    after,
+                    ui_data=shared_ui_data,
+                    runtime=merge_runtime
+                )
+                after = merged_tags
+                if merge_info and merge_info.get('changed'):
+                    tag_merge_applied_cards += 1
+                    tag_merge_replacements.extend(merge_info.get('replacements', []))
+
             if after != before_list:
                 data["tags"] = after
                 info["tags"] = after
@@ -2772,9 +2830,38 @@ def api_batch_tags():
             if _set_tag_order(ui_data, merged_order):
                 save_ui_data(ui_data)
 
-        return jsonify({"success": True, "updated": updated})
+        return jsonify({
+            "success": True,
+            "updated": updated,
+            "tag_merge": {
+                "cards": tag_merge_applied_cards,
+                "replacements": tag_merge_replacements
+            }
+        })
     except Exception as e:
         return jsonify({"success": False, "msg": str(e)})
+
+
+@bp.route('/api/preview_merge_tags', methods=['POST'])
+def api_preview_merge_tags():
+    try:
+        payload = request.json or {}
+        card_id = payload.get('id')
+        tags = _normalize_tag_list(payload.get('tags') or [])
+
+        if not card_id:
+            return jsonify({'success': False, 'msg': 'Missing ID'})
+        if not _is_safe_rel_path(card_id):
+            return jsonify({'success': False, 'msg': '非法路径'}), 400
+
+        merged_tags, merge_info = _apply_global_tag_merge_for_card(card_id, tags)
+        return jsonify({
+            'success': True,
+            'tags': merged_tags,
+            'tag_merge': merge_info
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'msg': str(e)})
 
 @bp.route('/api/update_card_file', methods=['POST'])
 def api_update_card_file():

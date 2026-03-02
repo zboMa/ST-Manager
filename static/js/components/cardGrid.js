@@ -256,7 +256,12 @@ export default function cardGrid() {
                 remove: tags
             }).then(res => {
                 if (res.success) {
-                    alert(`成功更新 ${res.updated} 张卡片`);
+                    let message = `成功更新 ${res.updated} 张卡片`;
+                    const merge = res.tag_merge || {};
+                    if (merge.cards) {
+                        message += `\n全局标签合并已应用到 ${merge.cards} 张卡片`;
+                    }
+                    alert(message);
                     // 清空筛选状态
                     this.$store.global.viewState.filterTags = [];
                     // 刷新列表
@@ -436,7 +441,12 @@ export default function cardGrid() {
             })
                 .then(res => {
                     if (res.success) {
-                        alert("成功更新 " + res.updated + " 张卡片");
+                        let message = "成功更新 " + res.updated + " 张卡片";
+                        const merge = res.tag_merge || {};
+                        if (merge.cards) {
+                            message += `\n全局标签合并已应用到 ${merge.cards} 张卡片`;
+                        }
+                        alert(message);
                         this.batchTagInputAdd = "";
                         this.fetchCards();
                     } else {
@@ -460,7 +470,12 @@ export default function cardGrid() {
             })
                 .then(res => {
                     if (res.success) {
-                        alert("成功更新 " + res.updated + " 张卡片");
+                        let message = "成功更新 " + res.updated + " 张卡片";
+                        const merge = res.tag_merge || {};
+                        if (merge.cards) {
+                            message += `\n全局标签合并已应用到 ${merge.cards} 张卡片`;
+                        }
+                        alert(message);
                         this.batchTagInputRemove = "";
                         this.fetchCards();
                     } else {

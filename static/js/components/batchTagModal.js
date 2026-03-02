@@ -69,7 +69,7 @@ export default function batchTagModal() {
             const val = (tag || this.batchTagInputAdd || "").trim();
             if (!val) return;
             
-            this._performBatchUpdate([val], [], "add");
+            this._performBatchUpdate([val], [], "add", { triggerMerge: true });
         },
 
         applyBatchAddTags() {
@@ -91,7 +91,7 @@ export default function batchTagModal() {
         },
 
         // 内部统一执行函数
-        _performBatchUpdate(addList, removeList, mode) {
+        _performBatchUpdate(addList, removeList, mode, options = {}) {
             if (this.targetIds.length === 0) {
                 alert("未选择任何卡片");
                 return;
@@ -100,11 +100,17 @@ export default function batchTagModal() {
             batchUpdateTags({
                 card_ids: this.targetIds,
                 add: addList,
-                remove: removeList
+                remove: removeList,
+                trigger_merge: !!options.triggerMerge
             })
             .then(res => {
                 if (res.success) {
-                    alert("成功更新 " + res.updated + " 张卡片");
+                    let message = "成功更新 " + res.updated + " 张卡片";
+                    const merge = res.tag_merge || {};
+                    if (merge.cards) {
+                        message += `\n全局标签合并已应用到 ${merge.cards} 张卡片`;
+                    }
+                    alert(message);
                     
                     // 清理状态
                     if (mode === "add") this.batchTagInputAdd = "";
