@@ -642,6 +642,7 @@ export default function detailModal() {
                     }
 
                     if (res.card.image_url) this.activeCard.image_url = res.card.image_url;
+                    if (res.card.import_time) this.activeCard.import_time = res.card.import_time;
 
                     // 更新 UI 备注字段
                     this.editingData.ui_summary = safeCard.ui_summary || "";
@@ -1044,6 +1045,7 @@ export default function detailModal() {
             getCardDetail(ver.id).then(res => {
                 if (res.success && res.card) {
                     const c = res.card;
+                    this.activeCard.import_time = c.import_time || c.last_modified || this.activeCard.import_time;
                     // 更新文件名（Bundle模式下也需要更新）
                     this.editingData.filename = c.filename;
 
@@ -1267,6 +1269,9 @@ export default function detailModal() {
                         this.editingData.filename = this.activeCard.filename;
                     }
                     this.activeCard.image_url = res.new_image_url;
+                    if (res.import_time) {
+                        this.activeCard.import_time = res.import_time;
+                    }
                     
                     window.dispatchEvent(new CustomEvent('refresh-card-list'));
                     e.target.value = '';

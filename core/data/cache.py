@@ -9,7 +9,15 @@ from urllib.parse import quote
 # === 基础设施 (只导入配置和底层数据操作，不导入 context) ===
 from core.config import CARDS_FOLDER, DEFAULT_DB_PATH
 from core.data.db_session import execute_with_retry
-from core.data.ui_store import load_ui_data, get_version_remark, cleanup_stale_version_remarks, migrate_bundle_remarks_to_versions, save_ui_data
+from core.data.ui_store import (
+    load_ui_data,
+    get_version_remark,
+    get_import_time,
+    ensure_import_time,
+    cleanup_stale_version_remarks,
+    migrate_bundle_remarks_to_versions,
+    save_ui_data,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -262,6 +270,16 @@ class GlobalMetadataCache:
         """[增量更新] 新增卡片"""
         with self.lock:
             new_card_data['tags'] = self._normalize_tags(new_card_data.get('tags'))
+
+            import_ts = new_card_data.get('import_time')
+            try:
+                import_ts = float(import_ts)
+                if import_ts <= 0:
+                    raise ValueError('invalid import_time')
+            except Exception:
+                import_ts = new_card_data.get('last_modified', time.time())
+            new_card_data['import_time'] = import_ts
+
             self.cards.append(new_card_data)
             self.id_map[new_card_data['id']] = new_card_data
             
@@ -402,7 +420,8 @@ class GlobalMetadataCache:
                         if d not in bundles: bundles[d] = []
                         bundles[d].append(card)
                     else:
-                        self._enrich_card_ui(card, ui_data, is_bundle=False)
+                        if self._enrich_card_ui(card, ui_data, is_bundle=False):
+                            ui_data_stale_cleaned = True
                         final_cards.append(card)
 
                 # 聚合 Bundle 版本
@@ -423,6 +442,7 @@ class GlobalMetadataCache:
                             "id": v['id'],
                             "filename": v['filename'],
                             "last_modified": v['last_modified'],
+                            "import_time": get_import_time(ui_data, v['id'], v['last_modified']),
                             "char_version": v.get('char_version', '')
                         }
                         ver_remark = get_version_remark(ui_data, dir_path, v['id'], cover_id)
@@ -435,7 +455,8 @@ class GlobalMetadataCache:
                     # 分类为 Bundle 所在文件夹的父级
                     bundle_card['category'] = dir_path.rsplit('/', 1)[0] if '/' in dir_path else ""
 
-                    self._enrich_card_ui(bundle_card, ui_data, is_bundle=True)
+                    if self._enrich_card_ui(bundle_card, ui_data, is_bundle=True):
+                        ui_data_stale_cleaned = True
                     final_cards.append(bundle_card)
                     new_bundle_map[dir_path] = bundle_card['id']
 
@@ -533,9 +554,14 @@ class GlobalMetadataCache:
             card['source_link'] = ui_info.get('link', '')
             card['resource_folder'] = ui_info.get('resource_folder', '')
 
+        import_time_changed, import_ts = ensure_import_time(ui_data, key, card.get('last_modified', 0))
+        card['import_time'] = import_ts
+
         # 预计算 URL
         mtime = int(card.get('last_modified', 0))
         encoded_id = quote(card['id'])
         card['image_url'] = f"/cards_file/{encoded_id}?t={mtime}"
         card['thumb_url'] = f"/api/thumbnail/{encoded_id}?t={mtime}"
+
+        return import_time_changed
 

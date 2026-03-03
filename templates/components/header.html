@@ -53,7 +53,7 @@
             <div>
                 <span style="font-weight: bold; font-size: 1.125rem; white-space: nowrap;">ST Manager</span>
                 <span
-                    style="font-size: 0.75rem; background: var(--accent-main); color: white; padding:2px 6px; border-radius:4px; margin-left: 0.25rem;">V91</span>
+                    style="font-size: 0.75rem; background: var(--accent-main); color: white; padding:2px 6px; border-radius:4px; margin-left: 0.25rem;">V92</span>
             </div>
         </div>
 
@@ -219,6 +219,8 @@
                 <select x-model="currentSort" class="search-sort-select">
                     <option value="date_desc">修改日期 (新→旧)</option>
                     <option value="date_asc">修改日期 (旧→新)</option>
+                    <option value="import_desc">导入日期 (新→旧)</option>
+                    <option value="import_asc">导入日期 (旧→新)</option>
                     <option value="name_asc">名称 (A→Z)</option>
                     <option value="name_desc">名称 (Z→A)</option>
                     <option value="token_desc">Token (大→小)</option>
@@ -319,6 +321,8 @@
             <select x-model="currentSort" class="mobile-menu-select">
                 <option value="date_desc">修改日期 (新 ➜ 旧)</option>
                 <option value="date_asc">修改日期 (旧 ➜ 新)</option>
+                <option value="import_desc">导入日期 (新 ➜ 旧)</option>
+                <option value="import_asc">导入日期 (旧 ➜ 新)</option>
                 <option value="name_asc">名称 (A ➜ Z)</option>
                 <option value="name_desc">名称 (Z ➜ A)</option>
                 <option value="token_desc">Token 量 (大 ➜ 小)</option>

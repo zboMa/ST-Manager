@@ -12,7 +12,7 @@ from urllib.parse import quote
 from core.config import CARDS_FOLDER, DEFAULT_DB_PATH, THUMB_FOLDER, BASE_DIR, load_config
 from core.context import ctx
 from core.data.db_session import get_db
-from core.data.ui_store import load_ui_data, save_ui_data, VERSION_REMARKS_KEY
+from core.data.ui_store import load_ui_data, save_ui_data, VERSION_REMARKS_KEY, ensure_import_time, get_import_time
 
 # === 服务依赖 ===
 from core.services.cache_service import update_card_cache
@@ -115,6 +115,13 @@ def update_card_content(card_id, temp_path, is_bundle_update, keep_ui_data, new_
     # 路径准备
     original_rel_path = card_id.replace('/', os.sep)
     original_full_path = os.path.join(CARDS_FOLDER, original_rel_path)
+    keep_ui_data = keep_ui_data if isinstance(keep_ui_data, dict) else {}
+    import_time_fallback = None
+    if os.path.exists(original_full_path):
+        try:
+            import_time_fallback = os.path.getmtime(original_full_path)
+        except Exception:
+            import_time_fallback = None
     
     # 检查原文件是否存在 (非 Bundle 新增模式下)
     if not os.path.exists(original_full_path) and not is_bundle_update:
@@ -328,6 +335,13 @@ def update_card_content(card_id, temp_path, is_bundle_update, keep_ui_data, new_
             del ui_data[card_id]
     
     if ui_key not in ui_data: ui_data[ui_key] = {}
+
+    # 导入时间：仅首次写入，后续更新不覆盖
+    ensure_import_time(
+        ui_data,
+        ui_key,
+        import_time_fallback if (isinstance(import_time_fallback, (int, float)) and import_time_fallback > 0) else time.time()
+    )
     
     # 如果 keep_ui_data 里有值（即前端传来 或者 上面 _archive_file 注入的），使用它
     current_res_folder = keep_ui_data.get('resource_folder')
@@ -403,6 +417,7 @@ def update_card_content(card_id, temp_path, is_bundle_update, keep_ui_data, new_
             "tags": calc_data.get('tags', []),
             "token_count": token_count,
             "last_modified": new_mtime,
+            "import_time": ui_data.get(ui_key, {}).get('import_time', new_mtime),
             "ui_summary": keep_ui_data.get('ui_summary', ''),
             "source_link": keep_ui_data.get('source_link', ''),
             "resource_folder": keep_ui_data.get('resource_folder', ''),
@@ -438,7 +453,8 @@ def update_card_content(card_id, temp_path, is_bundle_update, keep_ui_data, new_
         "new_id": final_rel_id,
         "new_filename": new_filename,
         "new_image_url": new_image_url,
-        "updated_card": updated_card_obj
+        "updated_card": updated_card_obj,
+        "import_time": get_import_time(load_ui_data(), final_rel_id, new_mtime)
     }
 
 # 皮肤换封服务

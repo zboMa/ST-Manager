@@ -722,6 +722,8 @@ export default function cardGrid() {
             const compare = (a, b) => {
                 if (sortMode === 'date_desc') return b.last_modified - a.last_modified;
                 if (sortMode === 'date_asc') return a.last_modified - b.last_modified;
+                if (sortMode === 'import_desc') return (b.import_time || b.last_modified || 0) - (a.import_time || a.last_modified || 0);
+                if (sortMode === 'import_asc') return (a.import_time || a.last_modified || 0) - (b.import_time || b.last_modified || 0);
                 if (sortMode === 'name_asc') return String(a.char_name).localeCompare(String(b.char_name), 'zh-CN');
                 if (sortMode === 'name_desc') return String(b.char_name).localeCompare(String(a.char_name), 'zh-CN');
                 if (sortMode === 'token_desc') return (b.token_count || 0) - (a.token_count || 0);

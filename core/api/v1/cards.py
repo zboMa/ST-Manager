@@ -16,7 +16,14 @@ from flask import Blueprint, request, jsonify, send_from_directory
 from core.config import CARDS_FOLDER, DATA_DIR, BASE_DIR, THUMB_FOLDER, TRASH_FOLDER, DEFAULT_DB_PATH, TEMP_DIR, load_config, current_config
 from core.context import ctx
 from core.data.db_session import get_db
-from core.data.ui_store import load_ui_data, save_ui_data, get_version_remark, set_version_remark
+from core.data.ui_store import (
+    load_ui_data,
+    save_ui_data,
+    get_version_remark,
+    set_version_remark,
+    get_import_time,
+    ensure_import_time,
+)
 from core.data.cache import GlobalMetadataCache
 from core.consts import SIDECAR_EXTENSIONS
 
@@ -254,6 +261,41 @@ def _is_safe_filename(name: str) -> bool:
         return False
     return True
 
+
+def _normalize_sort_mode(sort_mode: str) -> str:
+    allowed = {
+        'date_desc', 'date_asc',
+        'import_desc', 'import_asc',
+        'name_asc', 'name_desc',
+        'token_desc', 'token_asc'
+    }
+    mode = str(sort_mode or '').strip().lower()
+    return mode if mode in allowed else 'date_desc'
+
+
+def _sort_cards_inplace(cards_list, sort_mode: str):
+    mode = _normalize_sort_mode(sort_mode)
+    reverse = mode.endswith('_desc')
+
+    if mode.startswith('date_'):
+        cards_list.sort(key=lambda x: float(x.get('last_modified') or 0), reverse=reverse)
+        return mode
+
+    if mode.startswith('import_'):
+        cards_list.sort(key=lambda x: float(x.get('import_time') or x.get('last_modified') or 0), reverse=reverse)
+        return mode
+
+    if mode.startswith('name_'):
+        cards_list.sort(key=lambda x: str(x.get('char_name') or '').lower(), reverse=reverse)
+        return mode
+
+    if mode.startswith('token_'):
+        cards_list.sort(key=lambda x: int(x.get('token_count') or 0), reverse=reverse)
+        return mode
+
+    cards_list.sort(key=lambda x: float(x.get('last_modified') or 0), reverse=True)
+    return 'date_desc'
+
 def _apply_wi_preview(book_data, preview_limit: int, content_limit: int) -> Dict[str, Any]:
     """
     对世界书数据做预览截断，避免超大条目导致前端卡死。
@@ -359,7 +401,7 @@ def api_list_cards():
     excluded_tags_param = request.args.get('excluded_tags', '')
     search = request.args.get('search', '').lower().strip()
     search_type = request.args.get('search_type', 'mix')
-    sort_mode = request.args.get('sort', current_config.get('default_sort', 'date_desc'))
+    sort_mode = _normalize_sort_mode(request.args.get('sort', current_config.get('default_sort', 'date_desc')))
     excluded_cats_param = request.args.get('excluded_cats', '')
     
     # --- 获取是否递归显示的参数 (默认 true) ---
@@ -479,21 +521,9 @@ def api_list_cards():
 
     # 5. 排序
     filtered_cards = candidates
-    reverse = 'desc' in sort_mode
-    key_func = lambda x: x['last_modified'] # 默认
-    if 'date' in sort_mode:
-        key_func = lambda x: x['last_modified']
-    elif 'name' in sort_mode:
-        key_func = lambda x: x['char_name'].lower()
-    elif 'token' in sort_mode:
-        key_func = lambda x: x.get('token_count', 0)
-
-    # 执行排序
+    _sort_cards_inplace(filtered_cards, sort_mode)
     if fav_first:
-        filtered_cards.sort(key=key_func, reverse=reverse)
         filtered_cards.sort(key=lambda x: 0 if x.get('is_favorite') else 1)
-    else:
-        filtered_cards.sort(key=key_func, reverse=reverse)
 
     # 6. 分页
     total_count = len(filtered_cards)
@@ -715,6 +745,12 @@ def api_update_card():
             current_full_path = new_full_path
             file_content_modified = True 
 
+        import_fallback = None
+        try:
+            import_fallback = os.path.getmtime(current_full_path)
+        except Exception:
+            import_fallback = time.time()
+
         # 3. 始终更新 UI Data (Bundle模式下不影响文件内容)
         ui_data = load_ui_data()
         ui_changed = False
@@ -731,6 +767,11 @@ def api_update_card():
                 ui_changed = True
 
         if ui_key not in ui_data: ui_data[ui_key] = {}
+
+        import_time_changed, _ = ensure_import_time(ui_data, ui_key, import_fallback)
+        if import_time_changed:
+            ui_changed = True
+
         # 注意：如果是设为封面，前端发来的 ui_summary 可能是空的，保留原有值
         # Track if link was changed for forum tag fetching (必须在更新ui_data之前检查)
         link_changed = False
@@ -783,7 +824,6 @@ def api_update_card():
             save_ui_data(ui_data)
 
         # 4. 强制更新修改时间 & 数据库
-        import time
         current_mtime = 0
         should_touch_file = (file_content_modified or is_renamed or force_set_cover)
         
@@ -812,6 +852,30 @@ def api_update_card():
                 # print(f"Db Cleaned: Deleted old index {raw_id}")
             except Exception as e:
                 logger.error(f"Failed to delete old DB record for {raw_id}: {e}")
+
+        if raw_id != final_rel_path_id:
+            rename_ui_changed = False
+            old_entry = ui_data.pop(raw_id, None)
+            if isinstance(old_entry, dict):
+                if final_rel_path_id not in ui_data or not isinstance(ui_data.get(final_rel_path_id), dict):
+                    ui_data[final_rel_path_id] = old_entry
+                    rename_ui_changed = True
+                else:
+                    target_entry = ui_data[final_rel_path_id]
+                    for k, v in old_entry.items():
+                        if k not in target_entry:
+                            target_entry[k] = v
+                            rename_ui_changed = True
+
+                import_time_changed_after_rename, _ = ensure_import_time(ui_data, final_rel_path_id, import_fallback)
+                if import_time_changed_after_rename:
+                    rename_ui_changed = True
+
+            if rename_ui_changed:
+                save_ui_data(ui_data)
+
+            if ui_key == raw_id:
+                ui_key = final_rel_path_id
         
         data_block = info.get('data', info) if info else {}
         
@@ -843,6 +907,7 @@ def api_update_card():
             "resource_folder": res_folder_val,
             "token_count": token_count,
             "last_modified": current_mtime,
+            "import_time": get_import_time(ui_data, ui_key, current_mtime),
             "dir_path": os.path.dirname(final_rel_path_id) if '/' in final_rel_path_id else "",
             "char_version": data_block.get('character_version', ''),
             "creator": data_block.get('creator', '')
@@ -940,6 +1005,7 @@ def api_update_card():
                             "id": v['id'],
                             "filename": v['filename'],
                             "last_modified": v['last_modified'],
+                            "import_time": get_import_time(ui_data, v['id'], v['last_modified']),
                             "char_version": v.get('char_version', '')
                         }
                         ver_remark = get_version_remark(ui_data, bundle_dir, v['id'], cover_id)
@@ -967,6 +1033,7 @@ def api_update_card():
                     ts = int(time.time())
                     bundle_card['image_url'] = f"/cards_file/{encoded_id}?t={ts}"
                     bundle_card['thumb_url'] = f"/api/thumbnail/{encoded_id}?t={ts}"
+                    bundle_card['import_time'] = get_import_time(ui_data, bundle_dir, bundle_card.get('last_modified', current_mtime))
 
                     # 全局缓存映射
                     ctx.cache.bundle_map[bundle_dir] = bundle_card['id']
@@ -1652,6 +1719,11 @@ def api_import_from_url():
         
         final_hash, final_size = get_file_hash_and_size(target_save_path)
         mtime = os.path.getmtime(target_save_path)
+
+        ui_data = load_ui_data()
+        import_time_changed, import_time_val = ensure_import_time(ui_data, rel_path, mtime)
+        if import_time_changed:
+            save_ui_data(ui_data)
         
         # === 6. 更新缓存与返回 ===
         update_card_cache(rel_path, target_save_path)
@@ -1687,6 +1759,7 @@ def api_import_from_url():
             "image_url": f"/cards_file/{quote(rel_path)}?t={int(mtime)}",
             "thumb_url": f"/api/thumbnail/{quote(rel_path)}?t={int(mtime)}",
             "last_modified": mtime,
+            "import_time": import_time_val,
             "file_hash": final_hash,
             "is_bundle": False
         }
@@ -1700,11 +1773,20 @@ def api_import_from_url():
             if final_id and final_id != new_card['id']:
                 new_card['id'] = final_id
                 new_card['category'] = auto_res['result']['moved_to']
+
+                ui_data = load_ui_data()
+                changed_after_auto, final_import_time = ensure_import_time(ui_data, final_id, import_time_val)
+                if changed_after_auto:
+                    save_ui_data(ui_data)
+                new_card['import_time'] = final_import_time
+
                 # 更新 URL
                 encoded_id = quote(final_id)
                 ts = int(time.time())
                 new_card['image_url'] = f"/cards_file/{encoded_id}?t={ts}"
                 new_card['thumb_url'] = f"/api/thumbnail/{encoded_id}?t={ts}"
+
+            new_card['import_time'] = get_import_time(load_ui_data(), new_card['id'], new_card.get('import_time', mtime))
 
         return jsonify({
             "success": True, 
@@ -1791,9 +1873,12 @@ def api_change_image():
 
             # 5. 系统数据迁移 (UI Data)
             ui_data = load_ui_data()
-            if raw_id in ui_data:
+            had_old_ui_entry = raw_id in ui_data
+            if had_old_ui_entry:
                 ui_data[final_id] = ui_data[raw_id]
                 del ui_data[raw_id]
+            import_time_changed, import_time_val = ensure_import_time(ui_data, final_id, os.path.getmtime(target_save_path))
+            if had_old_ui_entry or import_time_changed:
                 save_ui_data(ui_data)
                 
             # 6. 数据库清理 (删除旧 ID 记录)
@@ -1843,6 +1928,11 @@ def api_change_image():
         
         # 2. 物理删除 WebP 缩略图缓存 (强制下次请求重新生成)
         clean_thumbnail_cache(final_id, THUMB_FOLDER)
+
+        ui_data_for_import_time = load_ui_data()
+        import_time_changed, import_time_val = ensure_import_time(ui_data_for_import_time, final_id, new_mtime)
+        if import_time_changed:
+            save_ui_data(ui_data_for_import_time)
         
         # 3. 更新数据库记录 (Upsert)
         update_card_cache(final_id, target_save_path)
@@ -1875,6 +1965,7 @@ def api_change_image():
             "creator": data_block.get('creator', ''),
             "char_version": data_block.get('character_version', ''),
             "last_modified": new_mtime,
+            "import_time": import_time_val,
             "token_count": token_count,
             "dir_path": os.path.dirname(final_id) if '/' in final_id else ""
             # 注意：file_hash 在 update_card_cache 中计算了，内存中可以暂时不更，或者再算一次
@@ -1910,7 +2001,8 @@ def api_change_image():
             "new_id": final_id,
             "new_image_url": new_image_url,
             "is_converted": is_format_conversion,
-            "last_modified": new_mtime
+            "last_modified": new_mtime,
+            "import_time": import_time_val
         })
 
     except Exception as e:
@@ -1926,7 +2018,7 @@ def api_find_card_page():
         target_id = request.json.get('card_id')
         # 允许前端不传 category，由后端自动推导
         category = request.json.get('category', None) 
-        sort_mode = request.json.get('sort', 'date_desc')
+        sort_mode = _normalize_sort_mode(request.json.get('sort', 'date_desc'))
         page_size = int(request.json.get('page_size', 20))
         
         if not target_id: return jsonify({"success": False})
@@ -1992,13 +2084,7 @@ def api_find_card_page():
             filtered_cards = [c for c in filtered_cards if c['category'] == ""]
 
         # 3. 排序 (必须与前端一致)
-        reverse = 'desc' in sort_mode
-        if 'date' in sort_mode:
-            filtered_cards.sort(key=lambda x: x['last_modified'], reverse=reverse)
-        elif 'name' in sort_mode:
-            filtered_cards.sort(key=lambda x: x['char_name'].lower(), reverse=reverse)
-        elif 'token' in sort_mode:
-            filtered_cards.sort(key=lambda x: x.get('token_count', 0), reverse=reverse)
+        _sort_cards_inplace(filtered_cards, sort_mode)
             
         # 4. 查找索引
         index = -1
@@ -2113,7 +2199,13 @@ def api_update_card_from_url():
             temp_ext,
             image_policy
         )
-        
+
+        if result.get('success'):
+            result['import_time'] = get_import_time(load_ui_data(), result.get('new_id') or card_id, result.get('last_modified', time.time()))
+            updated_card = result.get('updated_card')
+            if isinstance(updated_card, dict):
+                updated_card['import_time'] = result['import_time']
+
         if os.path.exists(temp_path): os.remove(temp_path)
         return jsonify(result)
 
@@ -2206,10 +2298,9 @@ def api_toggle_bundle_mode():
             # 在删除标记文件前，先将 bundle 的全局 link/resource_folder 复制到每个版本
             ui_data = load_ui_data()
             ui_changed = False
-            
-            if folder_path in ui_data and os.path.exists(full_path):
-                # 收集该目录下所有卡片 ID
-                version_ids = []
+
+            version_ids = []
+            if os.path.exists(full_path):
                 for root, dirs, files in os.walk(full_path):
                     if root != full_path:
                         continue
@@ -2217,7 +2308,8 @@ def api_toggle_bundle_mode():
                         if f.lower().endswith('.png'):
                             rel_id = f"{folder_path}/{f}"
                             version_ids.append(rel_id)
-                
+            
+            if folder_path in ui_data and os.path.exists(full_path):
                 # 迁移 bundle 的全局数据到各个版本
                 if version_ids:
                     from core.data.ui_store import migrate_bundle_remarks_to_versions
@@ -2227,6 +2319,12 @@ def api_toggle_bundle_mode():
                 # 删除 bundle 的全局数据（保留版本级别的 summary）
                 del ui_data[folder_path]
                 ui_changed = True
+
+            # 补齐每个版本的 import_time（若迁移未覆盖或旧数据缺失）
+            for ver_id in version_ids:
+                changed_import, _ = ensure_import_time(ui_data, ver_id)
+                if changed_import:
+                    ui_changed = True
             
             if ui_changed:
                 save_ui_data(ui_data)
@@ -2293,6 +2391,11 @@ def api_toggle_bundle_mode():
                 # 如果都已找到，提前退出
                 if bundle_ui['link'] and bundle_ui['resource_folder']:
                     break
+
+            # bundle 导入时间：继承封面版本（按 mtime 最新）对应卡片的导入时间
+            cover_id = cards_in_dir[0]['id'] if cards_in_dir else None
+            if cover_id:
+                bundle_ui['import_time'] = get_import_time(ui_data, cover_id, cards_in_dir[0]['mtime'])
             
             # 3.3 迁移各版本的 summary 到版本级别
             from core.data.ui_store import set_version_remark
@@ -2301,6 +2404,10 @@ def api_toggle_bundle_mode():
             for c in cards_in_dir:
                 version_id = c['id']
                 old_ui = c['ui']
+
+                # 版本层也补齐导入时间（向后兼容）
+                ensure_import_time(ui_data, version_id, c['mtime'])
+
                 # 只保留 summary 在版本级别
                 if old_ui.get('summary'):
                     version_remark = {
@@ -2428,11 +2535,25 @@ def api_convert_to_bundle():
             
         # UI Data 更新
         ui_data = load_ui_data()
+        ui_changed = False
+        new_key = f"{old_cat}/{new_bundle_name}" if old_cat else new_bundle_name
         if card_id in ui_data:
             # Bundle 模式下，UI data key 通常是 bundle_dir
-            new_key = f"{old_cat}/{new_bundle_name}" if old_cat else new_bundle_name
             ui_data[new_key] = ui_data[card_id]
             del ui_data[card_id]
+            ui_changed = True
+
+        # 转包后保持/补齐导入时间到 bundle key（即使原来无 ui_data 条目）
+        import_fallback = 0
+        try:
+            import_fallback = os.path.getmtime(dst_path)
+        except Exception:
+            import_fallback = time.time()
+        changed_import, _ = ensure_import_time(ui_data, new_key, import_fallback)
+        if changed_import:
+            ui_changed = True
+
+        if ui_changed:
             save_ui_data(ui_data)
             
         # 强制前端刷新
@@ -2576,6 +2697,10 @@ def api_get_card_detail():
         # 处理 UI Cache
         ui_data = load_ui_data()
         ui_key = resolve_ui_key(card_id)
+        import_time_changed, import_time_val = ensure_import_time(ui_data, ui_key, mtime)
+        if import_time_changed:
+            save_ui_data(ui_data)
+        card_data['import_time'] = import_time_val
 
         is_version_of_bundle = False
         parent_dir = os.path.dirname(card_id).replace('\\', '/')
@@ -2884,6 +3009,12 @@ def api_update_card_file():
         
         # 调用通用逻辑
         result = update_card_content(card_id, temp_path, is_bundle_update, keep_ui_data, new_upload_ext, image_policy)
+
+        if result.get('success'):
+            result['import_time'] = get_import_time(load_ui_data(), result.get('new_id') or card_id, time.time())
+            updated_card = result.get('updated_card')
+            if isinstance(updated_card, dict):
+                updated_card['import_time'] = result['import_time']
         
         if os.path.exists(temp_path): os.remove(temp_path)
         return jsonify(result)
@@ -3667,6 +3798,11 @@ def api_upload_commit():
             # 计算属性
             final_hash, final_size = get_file_hash_and_size(dst_path)
             mtime = os.path.getmtime(dst_path)
+
+            ui_data = load_ui_data()
+            import_time_changed, import_time_val = ensure_import_time(ui_data, rel_id, mtime)
+            if import_time_changed:
+                save_ui_data(ui_data)
             
             update_card_cache(rel_id, dst_path, parsed_info=info, file_hash=final_hash, file_size=final_size, mtime=mtime)
             
@@ -3702,6 +3838,7 @@ def api_upload_commit():
                     "category": category,
                     "creator": data_block.get('creator', ''),
                     "last_modified": mtime,
+                    "import_time": import_time_val,
                     "image_url": f"/cards_file/{quote(rel_id)}?t={int(mtime)}",
                     "thumb_url": f"/api/thumbnail/{quote(rel_id)}?t={int(mtime)}",
                     "file_hash": final_hash,
@@ -3718,11 +3855,20 @@ def api_upload_commit():
                         # ID 变了，更新返回给前端的数据，防止前端跳错位置
                         card_obj['id'] = final_id
                         card_obj['category'] = auto_res['result']['moved_to']
+
+                        ui_data_after_auto = load_ui_data()
+                        changed_after_auto, final_import_time = ensure_import_time(ui_data_after_auto, final_id, import_time_val)
+                        if changed_after_auto:
+                            save_ui_data(ui_data_after_auto)
+                        card_obj['import_time'] = final_import_time
+
                         # 更新 URL
                         encoded_id = quote(final_id)
                         ts = int(time.time())
                         card_obj['image_url'] = f"/cards_file/{encoded_id}?t={ts}"
                         card_obj['thumb_url'] = f"/api/thumbnail/{encoded_id}?t={ts}"
+
+                card_obj['import_time'] = get_import_time(load_ui_data(), card_obj['id'], card_obj.get('import_time', mtime))
 
                 new_cards.append(card_obj)
             

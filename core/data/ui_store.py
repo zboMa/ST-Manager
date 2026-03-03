@@ -1,6 +1,7 @@
 import os
 import json
 import logging
+import time
 from core.config import DB_FOLDER
 from core.consts import RESERVED_RESOURCE_NAMES
 
@@ -10,6 +11,85 @@ UI_DATA_FILE = os.path.join(DB_FOLDER, 'ui_data.json')
 logger = logging.getLogger(__name__)
 
 VERSION_REMARKS_KEY = '_version_remarks'
+IMPORT_TIME_KEY = 'import_time'
+
+
+def _normalize_timestamp(value):
+    """将时间戳规范为正浮点数，非法值返回 None。"""
+    if isinstance(value, bool):
+        return None
+
+    try:
+        ts = float(value)
+    except (TypeError, ValueError):
+        return None
+
+    if ts <= 0:
+        return None
+    return ts
+
+
+def get_import_time(ui_data, ui_key, fallback=None):
+    """
+    获取导入时间（秒级时间戳，浮点）。
+
+    Args:
+        ui_data: UI 数据字典
+        ui_key: 卡片/Bundle 对应的 UI Key
+        fallback: 兜底时间（通常传 last_modified）
+
+    Returns:
+        float: 导入时间；若不存在则回退 fallback；再无则返回 0
+    """
+    fallback_ts = _normalize_timestamp(fallback)
+
+    if not isinstance(ui_data, dict):
+        return fallback_ts if fallback_ts is not None else 0.0
+
+    entry = ui_data.get(ui_key)
+    if not isinstance(entry, dict):
+        return fallback_ts if fallback_ts is not None else 0.0
+
+    import_ts = _normalize_timestamp(entry.get(IMPORT_TIME_KEY))
+    if import_ts is not None:
+        return import_ts
+
+    return fallback_ts if fallback_ts is not None else 0.0
+
+
+def ensure_import_time(ui_data, ui_key, fallback=None):
+    """
+    确保指定 UI Key 拥有导入时间字段（只在缺失时写入）。
+
+    Args:
+        ui_data: UI 数据字典（会被原地修改）
+        ui_key: 卡片/Bundle 对应的 UI Key
+        fallback: 缺失时使用的时间戳（通常传导入完成时间）
+
+    Returns:
+        tuple[bool, float]: (是否发生修改, 最终导入时间)
+    """
+    fallback_ts = _normalize_timestamp(fallback)
+    if fallback_ts is None:
+        fallback_ts = time.time()
+
+    if not isinstance(ui_data, dict) or not ui_key:
+        return False, fallback_ts
+
+    changed = False
+    entry = ui_data.get(ui_key)
+    if not isinstance(entry, dict):
+        entry = {}
+        ui_data[ui_key] = entry
+        changed = True
+
+    current_ts = _normalize_timestamp(entry.get(IMPORT_TIME_KEY))
+    if current_ts is not None:
+        return changed, current_ts
+
+    entry[IMPORT_TIME_KEY] = fallback_ts
+    changed = True
+    return changed, fallback_ts
 
 def load_ui_data():
     """
@@ -28,6 +108,9 @@ def load_ui_data():
             # 检查 resource_folder 是否使用了系统保留名称 (如 'cards', 'thumbnails' 等)
             dirty = False
             for key, info in data.items():
+                if not isinstance(info, dict):
+                    continue
+
                 rf = info.get('resource_folder', '')
                 if rf:
                     # 兼容 Windows/Linux 分隔符，取第一层目录名检查
@@ -35,6 +118,16 @@ def load_ui_data():
                     if first_part in RESERVED_RESOURCE_NAMES:
                         logger.warning(f"检测到非法资源目录配置 '{rf}' (属于保留目录)，已自动移除关联。")
                         info['resource_folder'] = ""
+                        dirty = True
+
+                # 规范化 import_time，兼容历史字符串/非法值
+                if IMPORT_TIME_KEY in info:
+                    normalized_ts = _normalize_timestamp(info.get(IMPORT_TIME_KEY))
+                    if normalized_ts is None:
+                        del info[IMPORT_TIME_KEY]
+                        dirty = True
+                    elif info.get(IMPORT_TIME_KEY) != normalized_ts:
+                        info[IMPORT_TIME_KEY] = normalized_ts
                         dirty = True
             
             if dirty:
@@ -204,6 +297,12 @@ def migrate_version_remark_to_standalone(ui_data, bundle_dir, version_id):
         migrated_data['resource_folder'] = entry['resource_folder']
         has_data = True
 
+    # 3. 复制导入时间（如果有）
+    import_ts = _normalize_timestamp(entry.get(IMPORT_TIME_KEY))
+    if import_ts is not None:
+        migrated_data[IMPORT_TIME_KEY] = import_ts
+        has_data = True
+
     if has_data:
         ui_data[version_id] = migrated_data
         return True
@@ -301,6 +400,7 @@ def migrate_bundle_remarks_to_versions(ui_data, bundle_dir, version_ids=None):
     # 获取 bundle 全局的 link 和 resource_folder
     global_link = entry.get('link', '')
     global_resource_folder = entry.get('resource_folder', '')
+    global_import_time = _normalize_timestamp(entry.get(IMPORT_TIME_KEY))
 
     # 确定要处理的版本列表
     versions_to_process = []
@@ -327,6 +427,10 @@ def migrate_bundle_remarks_to_versions(ui_data, bundle_dir, version_ids=None):
 
         if global_resource_folder:
             migrated_data['resource_folder'] = global_resource_folder
+            has_data = True
+
+        if global_import_time is not None:
+            migrated_data[IMPORT_TIME_KEY] = global_import_time
             has_data = True
 
         if has_data:

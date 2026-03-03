@@ -935,6 +935,24 @@
                     <section x-show="tab==='manage'" x-transition.opacity class="detail-section custom-scrollbar">
                         <div class="detail-card">
                             <div class="detail-card-head">
+                                <div class="detail-card-title">时间信息</div>
+                            </div>
+                            <div class="px-3 py-2 text-xs" style="color: var(--text-sub); display: flex; gap: 1.5rem; flex-wrap: wrap;">
+                                <div style="display: flex; gap: 0.5rem; align-items: center;">
+                                    <span style="color: var(--text-dim);">导入时间</span>
+                                    <span class="font-mono text-neon" style="color: var(--text-main);"
+                                        x-text="formatDate(activeCard.import_time || activeCard.last_modified)"></span>
+                                </div>
+                                <div style="display: flex; gap: 0.5rem; align-items: center;">
+                                    <span style="color: var(--text-dim);">修改时间</span>
+                                    <span class="font-mono text-neon" style="color: var(--text-main);"
+                                        x-text="formatDate(activeCard.last_modified)"></span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="detail-card">
+                            <div class="detail-card-head">
                                 <div class="detail-card-title">工具箱</div>
                             </div>
 
