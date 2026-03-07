@@ -71,6 +71,13 @@
                     </div>
 
                     <div class="settings-row">
+                        <label class="settings-label text-emerald-400">聊天记录路径 (Chats)</label>
+                        <div class="settings-desc">存放 SillyTavern 聊天记录 (.jsonl) 的目录</div>
+                        <input type="text" x-model="settingsForm.chats_dir" class="form-input mt-2"
+                            placeholder="data/library/chats">
+                    </div>
+
+                    <div class="settings-row">
                         <label class="settings-label text-purple-400">正则脚本路径 (Regex)</label>
                         <div class="settings-desc">存放全局正则脚本 (.json) 的目录</div>
                         <input type="text" x-model="settingsForm.regex_dir" class="form-input mt-2"
@@ -310,6 +317,8 @@
                         <div class="grid grid-cols-2 md:grid-cols-3 gap-2">
                             <button @click="syncFromST('characters')" class="btn-secondary py-2 text-sm"
                                 :disabled="syncing">🎴 同步角色卡</button>
+                            <button @click="syncFromST('chats')" class="btn-secondary py-2 text-sm"
+                                :disabled="syncing">💬 同步聊天</button>
                             <button @click="syncFromST('worlds')" class="btn-secondary py-2 text-sm"
                                 :disabled="syncing">📚 同步世界书</button>
                             <button @click="syncFromST('presets')" class="btn-secondary py-2 text-sm"

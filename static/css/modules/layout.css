@@ -13,6 +13,8 @@
 .main-container {
     display: flex;
     flex: 1;
+    min-height: 0;
+    min-width: 0;
     overflow: hidden;
     background-color: color-mix(in srgb, var(--bg-body), transparent calc(100% - var(--bg-overlay-opacity) * 100%));
     backdrop-filter: blur(var(--bg-blur))
@@ -22,6 +24,8 @@
     flex: 1;
     display: flex;
     flex-direction: column;
+    min-height: 0;
+    min-width: 0;
     background-color: transparent;
     position: relative
 }

@@ -10,13 +10,16 @@
         {% include "components/sidebar.html" %}
 
         <!-- 右侧主内容区域 -->
-        <main class="content-area" style="overflow: hidden; display: flex; flex-direction: column;">
+        <main class="content-area" style="overflow: hidden; display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0;">
             
             <!-- 模式 1: 角色卡网格 -->
             {% include "components/grid_cards.html" %}
 
             <!-- 模式 2: 世界书网格 -->
             {% include "components/grid_wi.html" %}
+
+            <!-- 模式 3: 聊天记录网格 -->
+            {% include "components/chat_manager.html" %}
 
             {% include "components/grid_extensions.html" %}
 

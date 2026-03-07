@@ -40,6 +40,7 @@ ST_PATH_CANDIDATES = [
 # SillyTavern 数据目录结构
 ST_DATA_STRUCTURE = {
     "characters": "data/default-user/characters",
+    "chats": "data/default-user/chats",
     "worlds": "data/default-user/worlds", 
     "presets": "data/default-user/OpenAI Settings",
     "regex": "data/default-user/regex",
@@ -116,6 +117,7 @@ class STClient:
             os.path.join(normalized, "config.yaml"),
             os.path.join(normalized, "settings.json"),
             os.path.join(normalized, "characters"),
+            os.path.join(normalized, "chats"),
             os.path.join(normalized, "worlds"),
         ]
         if any(os.path.exists(p) for p in indicators):
@@ -140,7 +142,7 @@ class STClient:
                         continue
                     if os.path.exists(os.path.join(entry_path, "settings.json")):
                         return True
-                    if os.path.exists(os.path.join(entry_path, "characters")) or os.path.exists(os.path.join(entry_path, "worlds")):
+                    if os.path.exists(os.path.join(entry_path, "characters")) or os.path.exists(os.path.join(entry_path, "worlds")) or os.path.exists(os.path.join(entry_path, "chats")):
                         return True
             except Exception:
                 pass
@@ -194,7 +196,7 @@ class STClient:
                 score = 0
                 if os.path.exists(os.path.join(user_path, "settings.json")):
                     score += 5
-                for sub in ["characters", "worlds", "OpenAI Settings", "presets", "regex", "QuickReplies", "scripts"]:
+                for sub in ["characters", "chats", "worlds", "OpenAI Settings", "presets", "regex", "QuickReplies", "scripts"]:
                     if os.path.exists(os.path.join(user_path, sub)):
                         score += 1
                 if score > 0:
@@ -221,7 +223,7 @@ class STClient:
             # 已是用户目录（自定义用户名）
             if os.path.exists(os.path.join(normalized, "settings.json")):
                 return normalized
-            if os.path.exists(os.path.join(normalized, "characters")) or os.path.exists(os.path.join(normalized, "worlds")):
+            if os.path.exists(os.path.join(normalized, "characters")) or os.path.exists(os.path.join(normalized, "worlds")) or os.path.exists(os.path.join(normalized, "chats")):
                 return normalized
             if base == "data":
                 detected_user = self._find_user_dir_from_data_dir(normalized)
@@ -764,6 +766,45 @@ class STClient:
         """列出所有快速回复"""
         return self._list_quick_replies_local()
 
+    def list_chats(self) -> List[Dict[str, Any]]:
+        """从本地文件系统读取聊天目录列表。"""
+        chats_dir = self.get_st_subdir("chats")
+        if not chats_dir:
+            logger.warning("未找到聊天记录目录")
+            return []
+
+        results = []
+        try:
+            for entry in os.listdir(chats_dir):
+                char_dir = os.path.join(chats_dir, entry)
+                if not os.path.isdir(char_dir):
+                    continue
+
+                chat_count = 0
+                latest_mtime = 0.0
+                for filename in os.listdir(char_dir):
+                    if not filename.lower().endswith('.jsonl'):
+                        continue
+                    chat_count += 1
+                    file_path = os.path.join(char_dir, filename)
+                    try:
+                        latest_mtime = max(latest_mtime, os.path.getmtime(file_path))
+                    except Exception:
+                        pass
+
+                results.append({
+                    "id": entry,
+                    "name": entry,
+                    "chat_count": chat_count,
+                    "last_modified": latest_mtime,
+                    "filepath": char_dir,
+                })
+        except Exception as e:
+            logger.warning(f"读取聊天目录失败: {e}")
+
+        results.sort(key=lambda item: float(item.get('last_modified') or 0), reverse=True)
+        return results
+
     # ==================== 全局正则读取 ====================
 
     def get_global_regex(self, settings_path: Optional[str] = None) -> Dict[str, Any]:
@@ -881,20 +922,30 @@ class STClient:
             # 确定源文件
             if resource_type == "characters":
                 filename = f"{resource_id}.png" if not resource_id.endswith('.png') else resource_id
+            elif resource_type == "chats":
+                filename = resource_id
             else:
                 filename = f"{resource_id}.json" if not resource_id.endswith('.json') else resource_id
                 
             source_path = os.path.join(source_dir, filename)
-            if not os.path.exists(source_path):
+            if resource_type == "chats":
+                if not os.path.isdir(source_path):
+                    return False, f"聊天目录不存在: {source_path}"
+            elif not os.path.exists(source_path):
                 return False, f"源文件不存在: {source_path}"
                 
             # 确保目标目录存在
             os.makedirs(target_dir, exist_ok=True)
             
-            # 复制文件
-            target_path = os.path.join(target_dir, filename)
             import shutil
-            shutil.copy2(source_path, target_path)
+            if resource_type == "chats":
+                target_path = os.path.join(target_dir, filename)
+                if os.path.exists(target_path):
+                    shutil.rmtree(target_path)
+                shutil.copytree(source_path, target_path)
+            else:
+                target_path = os.path.join(target_dir, filename)
+                shutil.copy2(source_path, target_path)
             
             logger.info(f"同步资源成功: {source_path} -> {target_path}")
             return True, target_path
@@ -926,6 +977,8 @@ class STClient:
         # 获取资源列表
         if resource_type == "characters":
             resources = self.list_characters(use_api)
+        elif resource_type == "chats":
+            resources = self.list_chats()
         elif resource_type == "worlds":
             resources = self.list_world_books(use_api)
         elif resource_type == "presets":

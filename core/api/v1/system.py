@@ -48,6 +48,8 @@ def _is_under_base(path: str, base: str) -> bool:
 
 def _resolve_allowed_roots():
     cfg = load_config()
+    raw_chats = cfg.get('chats_dir', 'data/library/chats')
+    chats_root = raw_chats if os.path.isabs(raw_chats) else os.path.join(BASE_DIR, raw_chats)
 
     raw_wi = cfg.get('world_info_dir', 'lorebooks')
     wi_root = raw_wi if os.path.isabs(raw_wi) else os.path.join(BASE_DIR, raw_wi)
@@ -58,6 +60,7 @@ def _resolve_allowed_roots():
     roots = [
         str(CARDS_FOLDER),
         DATA_DIR,
+        chats_root,
         wi_root,
         res_root,
     ]
@@ -155,6 +158,14 @@ def api_save_settings():
                 # 只是警告，不阻止保存其他设置
                 logger.warning(f"无法创建资源目录 {resources_path}: {str(e)}")
 
+        chats_dir = new_config.get('chats_dir', 'data/library/chats')
+        chats_path = chats_dir if os.path.isabs(chats_dir) else os.path.join(BASE_DIR, chats_dir)
+        if not os.path.exists(chats_path):
+            try:
+                os.makedirs(chats_path)
+            except Exception as e:
+                logger.warning(f"无法创建聊天目录 {chats_path}: {str(e)}")
+
         return jsonify({"success": True})
     except Exception as e:
         return jsonify({"success": False, "msg": str(e)})
@@ -163,6 +174,16 @@ def api_save_settings():
 def api_get_settings():
     cfg = load_config()
     # 确保有默认值，防止前端 undefined
+    if 'cards_dir' not in cfg:
+        cfg['cards_dir'] = 'data/library/characters'
+    if 'world_info_dir' not in cfg:
+        cfg['world_info_dir'] = 'data/library/lorebooks'
+    if 'chats_dir' not in cfg:
+        cfg['chats_dir'] = 'data/library/chats'
+    if 'presets_dir' not in cfg:
+        cfg['presets_dir'] = 'data/library/presets'
+    if 'quick_replies_dir' not in cfg:
+        cfg['quick_replies_dir'] = 'data/library/extensions/quick-replies'
     if 'default_sort' not in cfg:
         cfg['default_sort'] = 'date_desc'
     if 'show_header_sort' not in cfg:

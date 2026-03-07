@@ -6,6 +6,7 @@
 import { getRandomCard } from '../api/card.js';
 import { batchUpdateTags } from '../api/system.js';
 import { listRuleSets, executeRules } from '../api/automation.js';
+import { listChats } from '../api/chat.js';
 
 export default function header() {
     return {
@@ -16,6 +17,9 @@ export default function header() {
 
         get wiSearchQuery() { return this.$store.global.wiSearchQuery; },
         set wiSearchQuery(val) { this.$store.global.wiSearchQuery = val; },
+
+        get chatSearchQuery() { return this.$store.global.chatSearchQuery; },
+        set chatSearchQuery(val) { this.$store.global.chatSearchQuery = val; },
 
         get presetSearch() { return this.$store.global.presetSearch; },
         set presetSearch(val) { this.$store.global.presetSearch = val; },
@@ -192,6 +196,10 @@ export default function header() {
             window.dispatchEvent(new CustomEvent('refresh-wi-list'));
         },
 
+        fetchChats() {
+            window.dispatchEvent(new CustomEvent('refresh-chat-list'));
+        },
+
         createWorldInfoBook() {
             if (this.currentMode !== 'worldinfo') return;
             window.dispatchEvent(new CustomEvent('create-worldinfo'));
@@ -203,6 +211,14 @@ export default function header() {
         },
         set showImportUrlModal(val) {
             if (val) {
+                if (this.currentMode !== 'cards') {
+                    if (this.currentMode === 'chats') {
+                        this.triggerChatImport();
+                        return;
+                    }
+                    alert('暂不支持当前模式的 URL 导入');
+                    return;
+                }
                 // 获取当前浏览的分类作为默认导入位置
                 const currentCat = this.$store.global.viewState.filterCategory;
                 // 触发 importModal 打开
@@ -228,6 +244,11 @@ export default function header() {
 
         // 触发导入弹窗
         triggerImport() {
+            if (this.currentMode === 'chats') {
+                this.triggerChatImport();
+                return;
+            }
+
             if (this.currentMode !== 'cards') {
                 alert('暂不支持世界书URL导入');
                 return;
@@ -316,6 +337,20 @@ export default function header() {
                 });
         },
 
+        randomByMode() {
+            if (this.currentMode === 'cards') {
+                this.randomCard();
+                return;
+            }
+            if (this.currentMode === 'worldinfo') {
+                this.randomWorldInfo();
+                return;
+            }
+            if (this.currentMode === 'chats') {
+                this.randomChat();
+            }
+        },
+
         // 随机世界书
         randomWorldInfo() {
             // 世界书列表在 State 中，可以直接取
@@ -332,6 +367,42 @@ export default function header() {
                 // 打开编辑器事件
                 window.dispatchEvent(new CustomEvent('open-wi-editor', { detail: item }));
             }
+        },
+
+        async randomChat() {
+            const currentItems = this.$store.global.chatList || [];
+            if (currentItems.length > 0) {
+                const item = currentItems[Math.floor(Math.random() * currentItems.length)];
+                window.dispatchEvent(new CustomEvent('open-chat-manager', {
+                    detail: { chat_id: item.id }
+                }));
+                return;
+            }
+
+            const res = await listChats({ page: 1, page_size: 100, search: this.chatSearchQuery || '', filter: this.$store.global.chatFilterType || 'all' });
+            if (!res.success || !Array.isArray(res.items) || res.items.length === 0) {
+                alert('当前没有可用聊天记录');
+                return;
+            }
+            const item = res.items[Math.floor(Math.random() * res.items.length)];
+            this.$store.global.currentMode = 'chats';
+            window.dispatchEvent(new CustomEvent('open-chat-manager', {
+                detail: { chat_id: item.id }
+            }));
+        },
+
+        triggerChatImport() {
+            if (this.currentMode !== 'chats') {
+                this.$store.global.currentMode = 'chats';
+            }
+
+            if (!window.stUploadChatFiles) {
+                alert('聊天网格尚未准备好，请稍后重试。');
+                return;
+            }
+            window.dispatchEvent(new CustomEvent('open-chat-file-picker', {
+                detail: { mode: 'global' }
+            }));
         },
 
         // 删除当前筛选的所有标签 (批量操作)

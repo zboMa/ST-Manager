@@ -89,7 +89,7 @@ export function initState() {
         // 设备类型: 'desktop' | 'mobile'
         deviceType: 'desktop',
         
-        // 模式: 'cards' | 'worldinfo'
+        // 模式: 'cards' | 'worldinfo' | 'chats'
         currentMode: 'cards',
         
         // 侧边栏显示状态（移动端使用）
@@ -133,6 +133,14 @@ export function initState() {
         wiTotalItems: 0,
         wiTotalPages: 1,
 
+        // 聊天记录共享状态
+        chatList: [],
+        chatSearchQuery: '',
+        chatFilterType: 'all', // all | bound | unbound | favorites
+        chatCurrentPage: 1,
+        chatTotalItems: 0,
+        chatTotalPages: 1,
+
         extensionFilterType: 'all', // 'all', 'global', 'resource'
 
         // 预设筛选状态
@@ -145,6 +153,7 @@ export function initState() {
         // 设置表单
         settingsForm: { 
             cards_dir: 'data/library/characters',
+            chats_dir: 'data/library/chats',
             presets_dir: 'data/library/presets',
             quick_replies_dir: 'data/library/extensions/quick-replies',
             default_sort: 'date_desc', 

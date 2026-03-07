@@ -192,6 +192,7 @@ export default function settingsModal() {
         getResourceLabel(type) {
             const labels = {
                 'characters': '🎴 角色卡',
+                'chats': '💬 聊天记录',
                 'worlds': '📚 世界书',
                 'presets': '📝 预设',
                 'regex': '🔧 正则脚本',
@@ -294,6 +295,8 @@ export default function settingsModal() {
                             await new Promise(r => setTimeout(r, 1500));
                             window.dispatchEvent(new CustomEvent('refresh-card-list'));
                             this.syncStatus = `✓ 同步完成: ${result.success} 个成功, ${result.failed} 个失败`;
+                        } else if (resourceType === 'chats') {
+                            window.dispatchEvent(new CustomEvent('refresh-chat-list'));
                         } else if (resourceType === 'worlds') {
                             window.dispatchEvent(new CustomEvent('refresh-wi-list'));
                         }
@@ -313,10 +316,11 @@ export default function settingsModal() {
         async syncAllFromST() {
             if (this.syncing) return;
             
-            const types = ['characters', 'worlds', 'presets', 'regex', 'quick_replies'];
+            const types = ['characters', 'chats', 'worlds', 'presets', 'regex', 'quick_replies'];
             let totalSuccess = 0;
             let totalFailed = 0;
             let hasCharacters = false;
+            let hasChats = false;
             let hasWorlds = false;
             
             this.syncing = true;
@@ -343,6 +347,9 @@ export default function settingsModal() {
                         if (type === 'characters' && data.result.success > 0) {
                             hasCharacters = true;
                         }
+                        if (type === 'chats' && data.result.success > 0) {
+                            hasChats = true;
+                        }
                         if (type === 'worlds' && data.result.success > 0) {
                             hasWorlds = true;
                         }
@@ -360,6 +367,9 @@ export default function settingsModal() {
             if (hasCharacters) {
                 await new Promise(r => setTimeout(r, 1500));
                 window.dispatchEvent(new CustomEvent('refresh-card-list'));
+            }
+            if (hasChats) {
+                window.dispatchEvent(new CustomEvent('refresh-chat-list'));
             }
             if (hasWorlds) {
                 window.dispatchEvent(new CustomEvent('refresh-wi-list'));

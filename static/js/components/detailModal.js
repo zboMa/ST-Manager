@@ -16,6 +16,7 @@ import {
     convertToBundle as apiConvertToBundle,
     toggleBundleMode as apiToggleBundleMode
 } from '../api/card.js';
+import { listChats } from '../api/chat.js';
 
 import { 
     renameFolder, 
@@ -107,6 +108,8 @@ export default function detailModal() {
         resourceScripts: [],
         resourceQuickReplies: [],
         resourcePresets: [],
+        cardChats: [],
+        cardChatsLoading: false,
         // 皮肤与版本
         skinImages: [],
         currentSkinIndex: -1,
@@ -449,6 +452,18 @@ export default function detailModal() {
                 this.openDetail(e.detail);
             });
 
+            window.addEventListener('refresh-detail-chats', () => {
+                if (this.showDetail && this.activeCard && this.activeCard.id) {
+                    this.fetchCardChats(this.activeCard.id);
+                }
+            });
+
+            window.addEventListener('refresh-chat-list', () => {
+                if (this.showDetail && this.activeCard && this.activeCard.id) {
+                    this.fetchCardChats(this.activeCard.id);
+                }
+            });
+
             // 监听关闭信号
             this.$watch('showDetail', (val) => {
                 if (!val) {
@@ -457,6 +472,7 @@ export default function detailModal() {
                     this.zoomLevel = 100;
                     this.isCardFlipped = false;
                     this.skinImages = [];
+                    this.cardChats = [];
                     this.updateImagePolicy = 'overwrite';
                     this.saveOldCoverOnSwap = false;
                     this.isEditMode = false; // 重置编辑模式
@@ -730,6 +746,73 @@ export default function detailModal() {
             window.addEventListener('wi-editor-closed', handleEditorClosed);
         },
 
+        fetchCardChats(cardId) {
+            if (!cardId) {
+                this.cardChats = [];
+                return;
+            }
+
+            this.cardChatsLoading = true;
+            listChats({ page: 1, page_size: 200, card_id: cardId, filter: 'all' })
+                .then((res) => {
+                    this.cardChatsLoading = false;
+                    if (!res.success) {
+                        this.cardChats = [];
+                        return;
+                    }
+                    this.cardChats = Array.isArray(res.items) ? res.items : [];
+                })
+                .catch(() => {
+                    this.cardChatsLoading = false;
+                    this.cardChats = [];
+                });
+        },
+
+        formatChatFloorDate(ts) {
+            return formatDate(ts);
+        },
+
+        openChatManagerForCard(chatId = '') {
+            const targetCardId = this.activeCard?.is_bundle ? (this.activeCard.bundle_dir || this.activeCard.id) : this.activeCard.id;
+            window.dispatchEvent(new CustomEvent('open-chat-manager', {
+                detail: {
+                    card_id: targetCardId,
+                    card_name: this.editingData.char_name || this.activeCard.char_name || '',
+                    chat_id: chatId || '',
+                }
+            }));
+            this.showDetail = false;
+        },
+
+        openChatReaderForCard(chatId = '') {
+            if (!chatId) return;
+            window.dispatchEvent(new CustomEvent('open-chat-reader', {
+                detail: {
+                    chat_id: chatId,
+                    card_id: this.activeCard?.is_bundle ? (this.activeCard.bundle_dir || this.activeCard.id) : this.activeCard.id,
+                    card_name: this.editingData.char_name || this.activeCard.char_name || '',
+                }
+            }));
+            this.showDetail = false;
+        },
+
+        triggerChatImportForCard() {
+            if (!window.stUploadChatFiles) {
+                alert('聊天网格尚未准备好，稍后再试一次。');
+                return;
+            }
+
+            window.dispatchEvent(new CustomEvent('open-chat-file-picker', {
+                detail: {
+                    mode: 'card',
+                    payload: {
+                        cardId: this.activeCard?.is_bundle ? (this.activeCard.bundle_dir || this.activeCard.id) : this.activeCard.id,
+                        characterName: this.editingData.char_name || this.activeCard.char_name || '',
+                    }
+                }
+            }));
+        },
+
         // 跳转定位
         locateCard() {
             const locateTarget = {
@@ -885,6 +968,7 @@ export default function detailModal() {
 
             // 加载资源
             if (c.resource_folder) this.fetchSkins(c.resource_folder);
+            this.fetchCardChats(c.id);
 
             // 后台获取完整数据 (确保是最新的)
             this.refreshActiveCardDetail(c.id);
@@ -947,6 +1031,7 @@ export default function detailModal() {
 
                     if (res.card.image_url) this.activeCard.image_url = res.card.image_url;
                     if (res.card.import_time) this.activeCard.import_time = res.card.import_time;
+                    this.fetchCardChats(safeCard.id || cardId);
 
                     // 更新 UI 备注字段
                     this.editingData.ui_summary = safeCard.ui_summary || "";

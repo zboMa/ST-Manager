@@ -15,6 +15,8 @@
                 placeholder="搜索..." class="mobile-search-input">
             <input x-show="currentMode === 'worldinfo'" type="text" x-model.debounce.300ms="wiSearchQuery"
                 placeholder="搜索..." class="mobile-search-input">
+            <input x-show="currentMode === 'chats'" type="text" x-model.debounce.300ms="chatSearchQuery"
+                placeholder="搜索聊天..." class="mobile-search-input">
             <input x-show="currentMode === 'presets'" type="text" x-model.debounce.300ms="presetSearch"
                 placeholder="搜索预设..." class="mobile-search-input">
             <input x-show="['regex','scripts','quick_replies'].includes(currentMode)" type="text"
@@ -199,6 +201,9 @@
                 <input x-show="currentMode === 'worldinfo'" type="text" x-model.debounce.300ms="wiSearchQuery"
                     placeholder="搜索世界书名称..." class="search-input"
                     :class="currentMode === 'cards' ? 'search-input-with-type' : 'search-input-standalone'">
+                <input x-show="currentMode === 'chats'" type="text" x-model.debounce.300ms="chatSearchQuery"
+                    placeholder="搜索聊天标题、角色或预览..." class="search-input"
+                    :class="currentMode === 'cards' ? 'search-input-with-type' : 'search-input-standalone'">
                 <input x-show="currentMode === 'presets'" type="text" x-model.debounce.300ms="presetSearch"
                     placeholder="搜索预设名称..." class="search-input"
                     :class="currentMode === 'cards' ? 'search-input-with-type' : 'search-input-standalone'">
@@ -245,18 +250,18 @@
                 class="btn-secondary hover:scale-105 transition-transform">
                 ➕
             </button>
-            <button @click="currentMode === 'cards' ? randomCard() : randomWorldInfo()"
-                :title="currentMode === 'cards' ? '🎲 手气不错，随机角色' : '🎲 手气不错，随机世界书'"
+            <button @click="randomByMode()"
+                :title="currentMode === 'cards' ? '🎲 手气不错，随机角色' : (currentMode === 'worldinfo' ? '🎲 手气不错，随机世界书' : '🎲 手气不错，随机聊天')"
                 class="hover:scale-110 transition-transform active:rotate-180 duration-300"
                 style="padding: 0.5rem; background: linear-gradient(135deg, var(--accent-main), #7c3aed); border: 1px solid var(--accent-light); border-radius: 0.5rem; cursor: pointer; color: white; display: flex; align-items: center; justify-content: center;">
                 🎲
             </button>
-            <button @click="if(currentMode==='cards') showImportUrlModal=true; else alert('暂不支持世界书URL导入')"
-                :class="currentMode === 'cards' ? 'btn-secondary hover:scale-105' : 'opacity-50 cursor-not-allowed btn-secondary'"
-                title="导入 (仅角色卡可用)" class="btn-secondary transition-all">
+            <button @click="currentMode==='cards' ? showImportUrlModal=true : (currentMode==='chats' ? triggerChatImport() : alert('暂不支持世界书URL导入'))"
+                :class="(currentMode === 'cards' || currentMode === 'chats') ? 'btn-secondary hover:scale-105' : 'opacity-50 cursor-not-allowed btn-secondary'"
+                :title="currentMode === 'chats' ? '导入聊天记录' : '导入 (仅角色卡或聊天可用)'" class="btn-secondary transition-all">
                 🌐
             </button>
-            <button @click="currentMode === 'cards' ? fetchCards() : fetchWorldInfoList()" title="刷新"
+            <button @click="currentMode === 'cards' ? fetchCards() : (currentMode === 'worldinfo' ? fetchWorldInfoList() : fetchChats())" title="刷新"
                 class="btn-secondary hover:scale-105 transition-transform">
                 ↻
             </button>
@@ -371,17 +376,22 @@
                 <div class="menu-icon">➕</div>
                 <div class="menu-label">新建世界书</div>
             </button>
-            <button @click="currentMode === 'cards' ? randomCard() : randomWorldInfo(); closeMobileMenu()"
+            <button x-show="currentMode === 'chats'" @click="triggerChatImport(); closeMobileMenu()"
+                class="mobile-menu-btn-item">
+                <div class="menu-icon">📥</div>
+                <div class="menu-label">导入聊天</div>
+            </button>
+            <button @click="randomByMode(); closeMobileMenu()"
                 class="mobile-menu-btn-item">
                 <div class="menu-icon">🎲</div>
                 <div class="menu-label">随机</div>
             </button>
-            <button @click="if(currentMode==='cards') showImportUrlModal=true; else alert('暂不支持世界书URL导入'); closeMobileMenu()"
-                :class="currentMode === 'cards' ? 'mobile-menu-btn-item' : 'mobile-menu-btn-item opacity-50'">
+            <button @click="if(currentMode==='cards') showImportUrlModal=true; else if(currentMode==='chats') triggerChatImport(); else alert('暂不支持世界书URL导入'); closeMobileMenu()"
+                :class="(currentMode === 'cards' || currentMode === 'chats') ? 'mobile-menu-btn-item' : 'mobile-menu-btn-item opacity-50'">
                 <div class="menu-icon">🌐</div>
-                <div class="menu-label">导入</div>
+                <div class="menu-label" x-text="currentMode === 'chats' ? '导入聊天' : '导入'"></div>
             </button>
-            <button @click="currentMode === 'cards' ? fetchCards() : fetchWorldInfoList(); closeMobileMenu()"
+            <button @click="currentMode === 'cards' ? fetchCards() : (currentMode === 'worldinfo' ? fetchWorldInfoList() : fetchChats()); closeMobileMenu()"
                 class="mobile-menu-btn-item">
                 <div class="menu-icon">↻</div>
                 <div class="menu-label">刷新</div>

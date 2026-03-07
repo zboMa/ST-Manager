@@ -7,7 +7,7 @@ import mimetypes
 from flask import Flask
 
 # === 基础设施 ===
-from core.config import INTERNAL_DIR, BASE_DIR, TEMP_DIR
+from core.config import INTERNAL_DIR, BASE_DIR, TEMP_DIR, log_runtime_path_snapshot
 from core.context import ctx
 from core.auth import init_auth
 
@@ -16,7 +16,7 @@ from core.data.db_session import init_database, close_connection, backfill_wi_me
 from core.services.scan_service import start_background_scanner
 
 # === API 蓝图 ===
-from core.api.v1 import cards, world_info, system, resources, automation, extensions, presets, st_sync
+from core.api.v1 import cards, world_info, system, resources, automation, extensions, presets, st_sync, chats
 from core.api import views
 
 logger = logging.getLogger(__name__)
@@ -50,6 +50,7 @@ def create_app():
     app.register_blueprint(extensions.bp)  # 扩展脚本管理
     app.register_blueprint(presets.bp)     # 预设管理
     app.register_blueprint(st_sync.bp)     # SillyTavern 资源同步
+    app.register_blueprint(chats.bp)       # 聊天记录管理
     
     # 2. 页面视图
     app.register_blueprint(views.bp)       # 前端页面入口
@@ -92,6 +93,7 @@ def init_services():
     """
     print("正在启动后台服务...")
     ctx.set_status(status="initializing", message="正在初始化数据库...")
+    log_runtime_path_snapshot(prefix='init_services startup', emit_print=True)
     
     # 0. 清理残留临时文件
     cleanup_temp_files()
@@ -117,6 +119,7 @@ def init_services():
         # 4. 启动文件系统扫描器
         # 负责监听文件变动并同步到数据库
         start_background_scanner()
+        log_runtime_path_snapshot(prefix='init_services after scanner start', emit_print=True)
         
         # 初始化完成
         ctx.set_status(status="ready", message="服务已就绪")

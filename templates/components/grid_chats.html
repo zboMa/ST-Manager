@@ -1,0 +1,115 @@
+<input type="file" x-ref="chatImportInput" class="hidden" multiple accept=".jsonl"
+    @change="handleChatInputChange($event)">
+
+<div class="flex-1 min-h-0 flex flex-col overflow-hidden w-full relative">
+    <div id="chat-scroll-area" class="scroll-container-y flex-1 min-h-0 p-5 custom-scrollbar relative"
+        @dragover.prevent="dragOverChats = true" @dragleave.prevent="dragOverChats = false"
+        @drop.prevent="handleChatFilesDrop($event)">
+
+        <div x-show="dragOverChats" x-transition.opacity class="drag-over-main-overlay">
+            <div class="text-6xl mb-4">💬</div>
+            <div class="text-2xl font-bold text-white tracking-wider">松开鼠标导入聊天记录</div>
+            <div class="text-gray-300 mt-2 text-sm">支持 SillyTavern `.jsonl` 文件</div>
+        </div>
+
+        <div x-show="isLoading" style="text-align: center; padding: 5rem; color: var(--accent-light);">
+            数据加载中...
+        </div>
+
+        <div x-show="!isLoading" class="chat-grid-shell">
+            <div class="chat-grid-toolbar">
+                <div class="chat-grid-toolbar-copy">
+                    <div class="chat-grid-kicker">SillyTavern Chats</div>
+                    <h2 class="chat-grid-title">按聊天记录管理本地对话</h2>
+                    <p class="chat-grid-desc">聊天与角色卡、世界书平级管理。支持收藏、角色绑定、全文搜索、楼层跳转与本地阅读工作台。</p>
+                </div>
+
+                <div class="chat-grid-toolbar-actions">
+                    <div x-show="linkedCardIdFilter" class="chat-linked-filter-pill">
+                        <span>当前只看</span>
+                        <strong x-text="linkedCardNameFilter || linkedCardIdFilter"></strong>
+                        <button type="button" @click="clearLinkedCardFilter()">✕</button>
+                    </div>
+
+                    <div class="chat-inline-actions" style="justify-content: flex-end;">
+                        <button @click="triggerChatImport()" class="chat-toolbar-btn chat-toolbar-btn--primary">📥 导入聊天</button>
+                        <button @click="fetchChats()" class="chat-toolbar-btn">↻ 刷新</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="chat-grid">
+                <template x-for="item in chatList" :key="item.id">
+                    <article class="chat-card" @click="openChatDetail(item)">
+                        <div class="chat-card-top">
+                            <button type="button" class="chat-card-favorite"
+                                :class="item.favorite ? 'is-active' : ''"
+                                @click.stop="toggleFavorite(item)"
+                                :title="item.favorite ? '取消收藏' : '收藏聊天'">♥</button>
+
+                            <div class="chat-card-seq" :class="floorToneClass(item.end_floor)">
+                                <span class="chat-card-seq-label">#</span>
+                                <strong x-text="item.end_floor || 0"></strong>
+                            </div>
+                        </div>
+
+                        <div class="chat-card-body">
+                            <div class="chat-card-stat-group">
+                                <div class="chat-card-stat">
+                                    <span class="chat-card-stat-label">起始</span>
+                                    <span class="chat-card-stat-value" x-text="item.start_floor || 1"></span>
+                                </div>
+                                <div class="chat-card-stat">
+                                    <span class="chat-card-stat-label">末层</span>
+                                    <span class="chat-card-stat-value" x-text="item.end_floor || 0"></span>
+                                </div>
+                            </div>
+
+                            <div class="chat-card-date-row">
+                                <div class="chat-card-date-box">
+                                    <span class="chat-card-date-label">创建</span>
+                                    <span class="chat-card-date-value" x-text="formatChatDate(item.created_at || item.file_mtime)"></span>
+                                </div>
+                                <div class="chat-card-date-box">
+                                    <span class="chat-card-date-label">导入</span>
+                                    <span class="chat-card-date-value" x-text="formatChatDate(item.import_time || item.file_mtime)"></span>
+                                </div>
+                            </div>
+
+                            <div class="chat-card-pill-row">
+                                <span class="chat-pill" x-text="item.bound_card_name || item.character_name || '未绑定角色'"></span>
+                                <span class="chat-pill chat-pill--muted" x-text="item.chat_name || item.filename"></span>
+                            </div>
+
+                            <p class="chat-card-preview" x-text="item.preview || '暂无正文预览'"></p>
+                        </div>
+
+                        <div class="chat-card-bottom">
+                            <button type="button" class="chat-card-action" @click.stop="openImmersive(item)">沉浸阅读</button>
+                            <button type="button" class="chat-card-action" @click.stop="openChatFolder(item)">打开文件夹</button>
+                            <button type="button" class="chat-card-action" @click.stop="openBindPicker(item)">绑定角色</button>
+                        </div>
+                    </article>
+                </template>
+            </div>
+
+            <div x-show="chatList.length === 0" class="chat-empty-state">
+                <div class="chat-empty-icon">🫧</div>
+                <div class="chat-empty-title">还没有可管理的聊天记录</div>
+                <div class="chat-empty-desc">把 SillyTavern 的 `.jsonl` 聊天拖进来，或使用上方导入按钮。</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="pagination-bar" x-show="chatList.length > 0 || chatCurrentPage > 1" style="flex-shrink: 0;">
+        <span style="font-size: 0.75rem; color: var(--text-dim);">共 <span x-text="chatTotalItems"></span> 条</span>
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <button @click="changeChatPage(chatCurrentPage - 1)" :disabled="chatCurrentPage===1" class="btn-secondary"
+                style="padding: 0.25rem 0.5rem;">上一页</button>
+            <span style="padding: 0.25rem 0.5rem; background: var(--bg-sub); border-radius: 0.25rem; color: var(--text-main); font-size: 0.75rem;"
+                x-text="chatCurrentPage + '/' + chatTotalPages"></span>
+            <button @click="changeChatPage(chatCurrentPage + 1)" :disabled="chatCurrentPage===chatTotalPages" class="btn-secondary"
+                style="padding: 0.25rem 0.5rem;">下一页</button>
+        </div>
+    </div>
+</div>

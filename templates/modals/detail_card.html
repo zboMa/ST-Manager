@@ -322,6 +322,10 @@
                         <span class="tab-icon">🌎</span>
                         <span class="tab-text">世界书</span>
                     </button>
+                    <button class="detail-tab" :class="tab==='chats' ? 'active' : ''" @click="tab='chats'">
+                        <span class="tab-icon">💬</span>
+                        <span class="tab-text">聊天</span>
+                    </button>
                     <button class="detail-tab" :class="tab==='manage' ? 'active' : ''" @click="tab='manage'">
                         <span class="tab-icon">🧰</span>
                         <span class="tab-text">管理</span>
@@ -983,6 +987,58 @@
                                                 class="btn-danger-xs">⚠ 应用 JSON 覆盖当前表格</button>
                                         </div>
                                     </div>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section x-show="tab==='chats'" x-transition.opacity class="detail-section detail-section-fill">
+                        <div class="detail-tab-scroll custom-scrollbar p-4">
+                            <div class="detail-chat-panel">
+                                <div class="detail-chat-panel-head">
+                                    <div>
+                                        <div class="detail-manage-panel-title">💬 角色关联聊天记录</div>
+                                        <div class="detail-manage-helper">这里展示绑定到当前角色卡的 SillyTavern 聊天，卡片内和聊天主界面的管理逻辑保持一致。</div>
+                                    </div>
+                                    <div class="detail-chat-panel-actions">
+                                        <button class="btn-secondary detail-mini-btn" @click="triggerChatImportForCard()">📥 导入聊天</button>
+                                        <button class="btn-secondary detail-mini-btn" @click="openChatManagerForCard()">⤢ 打开聊天管理</button>
+                                    </div>
+                                </div>
+
+                                <div x-show="cardChatsLoading" class="detail-chat-loading">正在加载聊天记录...</div>
+
+                                <div x-show="!cardChatsLoading && cardChats.length === 0" class="detail-chat-empty">
+                                    <div class="detail-chat-empty-icon">🫧</div>
+                                    <div class="detail-chat-empty-title">当前角色还没有关联聊天</div>
+                                    <div class="detail-chat-empty-desc">你可以直接导入 `.jsonl`，系统会自动写入聊天索引并绑定到这张角色卡。</div>
+                                </div>
+
+                                <div class="detail-chat-grid" x-show="!cardChatsLoading && cardChats.length > 0">
+                                    <template x-for="chat in cardChats" :key="chat.id">
+                                        <article class="detail-chat-card" @click="openChatReaderForCard(chat.id)">
+                                            <div class="detail-chat-card-top">
+                                                <div class="detail-chat-floor" :class="chat.end_floor >= 500 ? 'is-high' : (chat.end_floor >= 100 ? 'is-mid' : '')">
+                                                    <span>#</span>
+                                                    <strong x-text="chat.end_floor || 0"></strong>
+                                                </div>
+                                                <button type="button" class="detail-chat-favorite" :class="chat.favorite ? 'is-active' : ''" @click.stop="openChatReaderForCard(chat.id)">♥</button>
+                                            </div>
+                                            <div class="detail-chat-date-row">
+                                                <div class="detail-chat-date-box">
+                                                    <span>创建</span>
+                                                    <strong x-text="formatChatFloorDate(chat.created_at || chat.file_mtime)"></strong>
+                                                </div>
+                                                <div class="detail-chat-date-box">
+                                                    <span>导入</span>
+                                                    <strong x-text="formatChatFloorDate(chat.import_time || chat.file_mtime)"></strong>
+                                                </div>
+                                            </div>
+                                            <div class="detail-chat-pill" x-text="chat.title || chat.chat_name"></div>
+                                            <div class="detail-chat-pill detail-chat-pill--muted" x-text="chat.chat_name || chat.filename"></div>
+                                            <div class="detail-chat-preview" x-text="chat.preview || '暂无预览' "></div>
+                                        </article>
+                                    </template>
                                 </div>
                             </div>
                         </div>

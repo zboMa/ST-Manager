@@ -1,8 +1,8 @@
 <!-- === 模式 2: 世界书网格 (包含滚动、拖拽、分页) === -->
-<div x-show="currentMode === 'worldinfo'" x-data="wiGrid" class="flex-1 flex flex-col overflow-hidden w-full relative">
+<div x-show="currentMode === 'worldinfo'" x-data="wiGrid" class="flex-1 min-h-0 flex flex-col overflow-hidden w-full relative">
 
     <!-- 滚动区域 -->
-    <div id="wi-scroll-area" class="scroll-container-y p-4 custom-scrollbar relative"
+    <div id="wi-scroll-area" class="scroll-container-y flex-1 min-h-0 p-4 custom-scrollbar relative"
         @dragover.prevent="dragOverWi = true" @dragleave.prevent="dragOverWi = false"
         @drop.prevent="handleWiFilesDrop($event)">
 

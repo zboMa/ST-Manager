@@ -281,7 +281,7 @@ def validate_path():
             global LAST_VALID_ST_PATH
             LAST_VALID_ST_PATH = normalized_path
             # 检查各资源目录（兼容传入 data/default-user 或根目录）
-            for res_type in ['characters', 'worlds', 'presets', 'regex', 'quick_replies']:
+            for res_type in ['characters', 'chats', 'worlds', 'presets', 'regex', 'quick_replies']:
                 subdir = client.get_st_subdir(res_type)
                 if res_type == 'regex':
                     script_count = 0
@@ -302,8 +302,16 @@ def validate_path():
 
                 if subdir and os.path.exists(subdir):
                     try:
-                        count = len([f for f in os.listdir(subdir)
-                                   if f.endswith('.json') or f.endswith('.png')])
+                        if res_type == 'chats':
+                            count = 0
+                            for folder_name in os.listdir(subdir):
+                                folder_path = os.path.join(subdir, folder_name)
+                                if not os.path.isdir(folder_path):
+                                    continue
+                                count += len([f for f in os.listdir(folder_path) if f.endswith('.jsonl')])
+                        else:
+                            count = len([f for f in os.listdir(subdir)
+                                       if f.endswith('.json') or f.endswith('.png')])
                         resources[res_type] = {
                             "path": subdir,
                             "count": count
@@ -351,6 +359,8 @@ def list_resources(resource_type: str):
         
         if resource_type == 'characters':
             items = client.list_characters(use_api)
+        elif resource_type == 'chats':
+            items = client.list_chats()
         elif resource_type == 'worlds':
             items = client.list_world_books(use_api)
         elif resource_type == 'presets':
@@ -469,6 +479,7 @@ def sync_resources():
         config = load_config()
         target_dir_map = {
             "characters": config.get('cards_dir', 'data/library/characters'),
+            "chats": config.get('chats_dir', 'data/library/chats'),
             "worlds": config.get('world_info_dir', 'data/library/lorebooks'),
             "presets": config.get('presets_dir', 'data/library/presets'),
             "regex": config.get('regex_dir', 'data/library/extensions/regex'),
@@ -524,6 +535,8 @@ def sync_resources():
         if result.get("success", 0) > 0:
             if resource_type == 'characters':
                 request_scan(reason="st_sync")
+            elif resource_type == 'chats':
+                logger.info("聊天记录同步完成，等待前端刷新聊天视图")
             elif resource_type == 'worlds':
                 invalidate_wi_list_cache()
             
@@ -587,11 +600,13 @@ def get_summary():
         }
         
         # 统计各类资源
-        resource_types = ['characters', 'worlds', 'presets', 'regex', 'quick_replies']
+        resource_types = ['characters', 'chats', 'worlds', 'presets', 'regex', 'quick_replies']
         for res_type in resource_types:
             try:
                 if res_type == 'characters':
                     items = client.list_characters()
+                elif res_type == 'chats':
+                    items = client.list_chats()
                 elif res_type == 'worlds':
                     items = client.list_world_books()
                 elif res_type == 'presets':

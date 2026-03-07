@@ -1,5 +1,5 @@
 <!-- === 模式 1: 角色卡网格 === -->
-<div x-show="currentMode === 'cards'" x-data="cardGrid" class="flex-1 flex flex-col overflow-hidden w-full">
+<div x-show="currentMode === 'cards'" x-data="cardGrid" class="flex-1 min-h-0 flex flex-col overflow-hidden w-full">
 
     <!-- 滚动区域 -->
     <div class="card-scroll-area custom-scrollbar relative flex-1" id="main-scroll" @click="selectedIds = []"
@@ -20,10 +20,10 @@
         <div x-show="!isLoading" class="card-grid">
             <template x-for="card in paginatedCards" :key="card.id" @click="selectedIds = []">
                 <!-- ... (角色卡模板内容保持不变) ... -->
-                <div class="st-card group"
+        <div class="st-card group"
                     :data-card-id="card.id"
                     :class="{'selected': selectedIds.includes(card.id), 'is-favorite': card.is_favorite, 'card-highlight-anim': highlightId === card.id, 'is-flipped': isCardFlipped(card.id)}"
-                    x-effect="if(highlightId === card.id) $el.scrollIntoView({ behavior: 'smooth', block: 'center' })"
+                    x-effect="if(highlightId === card.id) $el.scrollIntoView({ behavior: 'smooth', block: 'start' })"
                     @click.stop="handleCardClick($event, card)" @mouseenter="handleCardMouseEnter(card.id)"
                     @mouseleave="handleCardMouseLeave(card.id)" draggable="true" @dragstart="dragStart($event, card)">
 

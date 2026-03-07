@@ -127,10 +127,10 @@ export default function sidebar() {
                     if (activeElements.length > 0) {
                         const targetEl = activeElements[activeElements.length - 1];
 
-                        // 使用 scrollIntoView 将其滚动到中间
+                        // 使用 scrollIntoView 将其滚动到顶部，更符合目录定位习惯
                         targetEl.scrollIntoView({
                             behavior: 'smooth',
-                            block: 'center',
+                            block: 'start',
                             inline: 'nearest'
                         });
                     }
@@ -397,7 +397,7 @@ export default function sidebar() {
                 return;
             }
 
-            const mode = this.currentMode; // 'cards' | 'worldinfo'
+            const mode = this.currentMode; // 'cards' | 'worldinfo' | 'chats'
 
             // === 1. 角色卡上传 ===
             if (mode === 'cards') {
@@ -419,6 +419,18 @@ export default function sidebar() {
                     window.stUploadWorldInfoFiles(files);
                 } else {
                     alert('世界书网格尚未准备好，稍后再试一次。');
+                }
+
+                input.value = '';
+                return;
+            }
+
+            // === 3. 聊天记录上传 ===
+            if (mode === 'chats') {
+                if (window.stUploadChatFiles) {
+                    window.stUploadChatFiles(files, {});
+                } else {
+                    alert('聊天网格尚未准备好，稍后再试一次。');
                 }
 
                 input.value = '';

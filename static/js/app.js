@@ -12,6 +12,7 @@ import header from './components/header.js';
 import sidebar from './components/sidebar.js';
 import cardGrid from './components/cardGrid.js';
 import wiGrid from './components/wiGrid.js';
+import chatGrid from './components/chatGrid.js';
 import detailModal from './components/detailModal.js';
 import wiEditor from './components/wiEditor.js';
 import advancedEditor from './components/advancedEditor.js';
@@ -44,6 +45,7 @@ const registerComponents = () => {
     Alpine.data('sidebar', sidebar);
     Alpine.data('cardGrid', cardGrid);
     Alpine.data('wiGrid', wiGrid);
+    Alpine.data('chatGrid', chatGrid);
     Alpine.data('detailModal', detailModal);
     Alpine.data('wiEditor', wiEditor);
     Alpine.data('advancedEditor', advancedEditor);

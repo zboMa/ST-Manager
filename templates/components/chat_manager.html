@@ -1,0 +1,8 @@
+<!-- === 模式 3: 聊天记录管理 === -->
+<div x-show="currentMode === 'chats'" x-data="chatGrid" class="chat-mode-shell relative">
+    {% include "components/grid_chats.html" %}
+
+    <template x-teleport="body">
+        {% include "modals/detail_chat_reader.html" %}
+    </template>
+</div>

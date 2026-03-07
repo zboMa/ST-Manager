@@ -1,8 +1,8 @@
 <!-- 移动端：悬浮竖排菜单（导入 + 切换） -->
 <div x-show="$store.global.deviceType === 'mobile' && !$store.global.visibleSidebar" class="sidebar-button-group"
     x-data="sidebar">
-    <!-- 隐藏的文件选择器：多选，仅 json/png -->
-    <input type="file" x-ref="mobileImportInput" class="hidden" multiple accept=".json,.png,application/json,image/png"
+    <!-- 隐藏的文件选择器：多选，依据当前模式决定导入类型 -->
+    <input type="file" x-ref="mobileImportInput" class="hidden" multiple accept=".json,.png,.jsonl,application/json,image/png"
         @change="handleMobileImportChange($event)" />
     <!-- 导入按钮 -->
     <button @click="$refs.mobileImportInput.click()" class="sidebar-group-btn sidebar-group-btn-top">
@@ -43,6 +43,10 @@
             <button @click="switchMode('worldinfo')" class="flex-1 py-3 text-sm font-bold transition-colors border-b-2"
                 :class="currentMode === 'worldinfo' ? 'border-[var(--accent-main)] text-[var(--text-main)] bg-[var(--bg-panel)]' : 'border-transparent text-[var(--text-dim)] hover:text-[var(--text-main)]'">
                 🌎 世界书
+            </button>
+            <button @click="switchMode('chats')" class="flex-1 py-3 text-sm font-bold transition-colors border-b-2"
+                :class="currentMode === 'chats' ? 'border-[var(--accent-main)] text-[var(--text-main)] bg-[var(--bg-panel)]' : 'border-transparent text-[var(--text-dim)] hover:text-[var(--text-main)]'">
+                💬 聊天
             </button>
         </div>
 
@@ -205,6 +209,42 @@
                 class="w-full py-2 text-xs border border-dashed border-[var(--text-dim)] text-[var(--text-dim)] hover:border-[var(--accent-main)] hover:text-[var(--accent-main)] rounded transition-colors text-center">
                 🧹 整理资源目录文件
             </button>
+        </div>
+    </div>
+
+    <div x-show="currentMode === 'chats' && visibleSidebar"
+        class="flex-1 flex flex-col overflow-hidden bg-[var(--bg-panel)]">
+        <div class="p-4 space-y-2">
+            <div class="text-xs font-bold text-[var(--text-dim)] uppercase tracking-wider mb-2">聊天筛选</div>
+
+            <button @click="$store.global.chatFilterType='all'"
+                class="w-full text-left px-3 py-2 rounded text-sm flex justify-between items-center transition-colors"
+                :class="$store.global.chatFilterType === 'all' ? 'bg-[var(--accent-main)] text-white' : 'hover:bg-[var(--bg-hover)] text-[var(--text-main)]'">
+                <span>📚 全部显示</span>
+            </button>
+
+            <button @click="$store.global.chatFilterType='bound'"
+                class="w-full text-left px-3 py-2 rounded text-sm flex justify-between items-center transition-colors"
+                :class="$store.global.chatFilterType === 'bound' ? 'bg-green-600 text-white' : 'hover:bg-[var(--bg-hover)] text-[var(--text-main)]'">
+                <span>🔗 已绑定角色</span>
+            </button>
+
+            <button @click="$store.global.chatFilterType='unbound'"
+                class="w-full text-left px-3 py-2 rounded text-sm flex justify-between items-center transition-colors"
+                :class="$store.global.chatFilterType === 'unbound' ? 'bg-orange-600 text-white' : 'hover:bg-[var(--bg-hover)] text-[var(--text-main)]'">
+                <span>📂 未绑定</span>
+            </button>
+
+            <button @click="$store.global.chatFilterType='favorites'"
+                class="w-full text-left px-3 py-2 rounded text-sm flex justify-between items-center transition-colors"
+                :class="$store.global.chatFilterType === 'favorites' ? 'bg-rose-600 text-white' : 'hover:bg-[var(--bg-hover)] text-[var(--text-main)]'">
+                <span>♥ 收藏</span>
+            </button>
+        </div>
+
+        <div class="mt-auto p-4 border-t border-[var(--border-main)] text-xs text-[var(--text-dim)] space-y-2">
+            <p>提示: 可从这里统一查看、搜索、收藏并绑定 SillyTavern 的本地聊天记录。</p>
+            <p>导入 `.jsonl` 后会自动建立基础索引，聊天独有数据会写入独立文件。</p>
         </div>
     </div>
 

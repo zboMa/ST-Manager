@@ -56,10 +56,12 @@
     --z-dropdown: 500;
     --z-sidebar-overlay: 999;
     --z-sidebar-mobile: 1000;
-    --z-modal-std: 1000;
+    --z-modal: 1000;
+    --z-modal-std: 1100;
     --z-modal-editor: 2000;
-    --z-modal-popover: 3000;
     --z-modal-detail: 3000;
+    --z-chat-reader: 3200;
+    --z-modal-popover: 3400;
     --z-context-menu: 9000;
     --z-toast: 9500;
     --z-loading: 9999;
@@ -98,12 +100,20 @@
     z-index: var(--z-sidebar-mobile) !important
 }
 
+.z-modal {
+    z-index: var(--z-modal) !important
+}
+
 .z-modal-std {
     z-index: var(--z-modal-std) !important
 }
 
 .z-modal-editor {
     z-index: var(--z-modal-editor) !important
+}
+
+.z-chat-reader {
+    z-index: var(--z-chat-reader) !important
 }
 
 .z-modal-popover {

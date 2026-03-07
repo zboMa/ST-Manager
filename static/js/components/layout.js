@@ -127,7 +127,7 @@ export default function layout() {
             this.selectedIds = []; // 清空选中
 
             // 切换到非卡片模式时，清除过滤条件
-            if (mode !== 'cards' && mode !== 'worldinfo') {
+            if (mode !== 'cards' && mode !== 'worldinfo' && mode !== 'chats') {
                 this.$store.global.viewState.searchQuery = '';
                 this.$store.global.viewState.filterTags = [];
                 this.$store.global.viewState.excludedTags = [];
@@ -138,6 +138,8 @@ export default function layout() {
             // 触发数据加载 (通过事件通知 Grid 组件)
             if (mode === 'worldinfo') {
                 window.dispatchEvent(new CustomEvent('refresh-wi-list'));
+            } else if (mode === 'chats') {
+                window.dispatchEvent(new CustomEvent('refresh-chat-list'));
             } else {
                 window.dispatchEvent(new CustomEvent('refresh-card-list'));
             }

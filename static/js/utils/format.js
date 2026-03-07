@@ -6,7 +6,29 @@
 // 格式化时间戳 (秒) 为 "MM-DD HH:mm"
 export function formatDate(ts) {
     if (!ts) return '-';
-    return new Date(ts * 1000).toLocaleString('zh-CN', {
+    let dateValue = null;
+
+    if (typeof ts === 'number') {
+        dateValue = new Date(ts * 1000);
+    } else if (typeof ts === 'string') {
+        const trimmed = ts.trim();
+        if (!trimmed) return '-';
+
+        if (/^\d+(\.\d+)?$/.test(trimmed)) {
+            dateValue = new Date(parseFloat(trimmed) * 1000);
+        } else {
+            const parsed = Date.parse(trimmed);
+            if (!Number.isNaN(parsed)) {
+                dateValue = new Date(parsed);
+            }
+        }
+    }
+
+    if (!dateValue || Number.isNaN(dateValue.getTime())) {
+        return String(ts);
+    }
+
+    return dateValue.toLocaleString('zh-CN', {
         month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
     });
 }

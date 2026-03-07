@@ -178,6 +178,10 @@ def api_list_world_infos():
         # === 动态获取配置中的路径，而不是使用全局静态变量 ===
         cfg = load_config()
         current_wi_folder = _resolve_wi_dir(cfg)
+        resources_root = _resolve_resources_dir(cfg)
+        logger.info(
+            f"[PathDebug] world_info list root={os.path.abspath(current_wi_folder)} exists={os.path.exists(current_wi_folder)} resources_root={os.path.abspath(resources_root)} resources_exists={os.path.exists(resources_root)} wi_type={wi_type} search={search!r}"
+        )
             
         if not os.path.exists(current_wi_folder):
             try: os.makedirs(current_wi_folder, exist_ok=True)
@@ -317,6 +321,7 @@ def api_list_world_infos():
 
         # 1. 全局目录 (Global)
         if wi_type in ['all', 'global']:
+            global_count_before = len(items)
             for root, dirs, files in os.walk(current_wi_folder):
                 for f in files:
                     if f.lower().endswith('.json'):
@@ -371,6 +376,7 @@ def api_list_world_infos():
                         except Exception as e: 
                             print(f"Error reading WI {f}: {e}")
                             continue
+            logger.info(f"[PathDebug] world_info global scan root={os.path.abspath(current_wi_folder)} items_added={len(items) - global_count_before}")
 
         # 2. 资源目录 (Resource) - 基于 ui_data 查找自定义路径
         if wi_type in ['all', 'resource']:
@@ -378,6 +384,7 @@ def api_list_world_infos():
             # 此时我们要扫描的是哪些文件夹里有 'lorebooks/*.json'
             # 为了避免重复扫描同一个文件夹（多个卡片可能指向同一个资源目录），我们需要去重
             scanned_paths = set()
+            resource_count_before = len(items)
             
             # 遍历资源目标目录
             for target in resource_targets:
@@ -419,6 +426,9 @@ def api_list_world_infos():
                                         "mtime": os.path.getmtime(full_path)
                                     })
                             except: continue
+            logger.info(
+                f"[PathDebug] world_info resource scan resources_root={os.path.abspath(default_res_dir)} target_dirs={len(resource_targets)} scanned_dirs={len(scanned_paths)} items_added={len(items) - resource_count_before}"
+            )
 
         # 3. 角色卡内嵌 (Embedded) - 查询数据库
         if wi_type in ['all', 'embedded']:
