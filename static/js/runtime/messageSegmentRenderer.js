@@ -33,6 +33,7 @@ function mountAnchorContent(anchor, classification, text, options = {}) {
     if (classification.type === 'app-stage') {
         const stage = new ChatAppStage({
             onTriggerSlash: options.onTriggerSlash,
+            onToast: options.onToast,
             onAppError: options.onAppError,
         });
         stage.attachHost(anchor);

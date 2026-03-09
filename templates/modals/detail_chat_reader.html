@@ -199,10 +199,14 @@
                                 <template x-if="message.is_full_display">
                                     <div>
                                         <template x-if="message.should_render_full">
-                                            <div class="chat-message-content markdown-body" :class="'st-reader-floor-' + message.floor" x-html="renderMessageDisplayHtml(message)" x-effect="mountMessageDisplay($el, message)"></div>
+                                            <div class="chat-message-content markdown-body" :class="'st-reader-floor-' + message.floor" x-effect="syncMessageDisplay($el, message, 'full')"></div>
                                         </template>
 
-                                        <template x-if="!message.should_render_full">
+                                        <template x-if="message.should_render_simple">
+                                            <div class="chat-message-content markdown-body chat-message-content--simple" :class="'st-reader-floor-' + message.floor" x-effect="syncMessageDisplay($el, message, 'simple')"></div>
+                                        </template>
+
+                                        <template x-if="message.is_compact_display">
                                             <div class="chat-message-content chat-message-content--compact">
                                                 <div x-text="message.compact_preview"></div>
                                                 <button type="button" class="chat-inline-link" @click="scrollToFloor(message.floor)">滚动到此处并完整渲染</button>
@@ -213,7 +217,7 @@
 
                                 <template x-if="!message.is_full_display">
                                     <div class="chat-message-content chat-message-content--collapsed">
-                                        <div x-text="message.compact_preview"></div>
+                                        <div x-text="message.placeholder_preview || message.compact_preview"></div>
                                         <button type="button" class="chat-inline-link" @click="scrollToFloor(message.floor)">查看该楼层</button>
                                     </div>
                                 </template>
@@ -303,8 +307,18 @@
                 <span>实例执行楼层数</span>
                 <input type="number" min="0" max="50" x-model.number="readerViewSettings.instanceRenderDepth" class="form-input">
             </label>
+            <label class="chat-reader-field">
+                <span>简化渲染半径</span>
+                <input type="number" min="0" max="60" x-model.number="readerViewSettings.simpleRenderRadius" class="form-input">
+            </label>
+            <label class="chat-reader-field">
+                <span>历史楼层隐藏阈值</span>
+                <input type="number" min="0" max="120" x-model.number="readerViewSettings.hiddenHistoryThreshold" class="form-input">
+            </label>
             <div class="chat-reader-replace-status">建议策略：只完整保留最近楼层；越远的历史楼层只显示缩略，滚动靠近后再进入完整渲染。</div>
             <div class="chat-reader-replace-status">仅让最近 N 层真正执行前端实例。`0` 表示全部楼层都执行；默认 `1`</div>
+            <div class="chat-reader-replace-status">建议大聊天使用三层策略：最近楼层完整渲染，附近楼层简化渲染，更早历史仅显示楼层+摘要。</div>
+            <div class="chat-reader-replace-status">`简化渲染半径` 使用轻量 markdown；`历史楼层隐藏阈值` 之外仅保留楼层与摘要，滚动靠近后再升级渲染。</div>
         </div>
     </div>
 </div>

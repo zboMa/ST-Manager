@@ -47,6 +47,8 @@ const DEFAULT_CHAT_READER_VIEW_SETTINGS = {
     renderNearbyCount: 4,
     compactPreviewLength: 140,
     instanceRenderDepth: 1,
+    simpleRenderRadius: 10,
+    hiddenHistoryThreshold: 28,
 };
 
 const DEFAULT_CHAT_READER_RENDER_PREFS = {
@@ -327,6 +329,8 @@ function normalizeViewSettings(raw) {
     const renderNearbyCount = Number.parseInt(source.renderNearbyCount, 10);
     const compactPreviewLength = Number.parseInt(source.compactPreviewLength, 10);
     const instanceRenderDepth = Number.parseInt(source.instanceRenderDepth, 10);
+    const simpleRenderRadius = Number.parseInt(source.simpleRenderRadius, 10);
+    const hiddenHistoryThreshold = Number.parseInt(source.hiddenHistoryThreshold, 10);
 
     return {
         fullDisplayCount: Number.isFinite(fullDisplayCount)
@@ -341,6 +345,12 @@ function normalizeViewSettings(raw) {
         instanceRenderDepth: Number.isFinite(instanceRenderDepth)
             ? Math.min(50, Math.max(0, instanceRenderDepth))
             : DEFAULT_CHAT_READER_VIEW_SETTINGS.instanceRenderDepth,
+        simpleRenderRadius: Number.isFinite(simpleRenderRadius)
+            ? Math.min(60, Math.max(0, simpleRenderRadius))
+            : DEFAULT_CHAT_READER_VIEW_SETTINGS.simpleRenderRadius,
+        hiddenHistoryThreshold: Number.isFinite(hiddenHistoryThreshold)
+            ? Math.min(120, Math.max(0, hiddenHistoryThreshold))
+            : DEFAULT_CHAT_READER_VIEW_SETTINGS.hiddenHistoryThreshold,
     };
 }
 
@@ -371,8 +381,12 @@ function createReaderVisibleMessagesCache() {
         bookmarksRef: null,
         detailBookmarkedOnly: false,
         currentFloor: 0,
+        windowStartFloor: 0,
+        windowEndFloor: 0,
         fullCount: 0,
         renderNearby: 0,
+        simpleRenderRadius: 0,
+        hiddenHistoryThreshold: 0,
         compactPreviewLength: 0,
         result: [],
     };
@@ -645,8 +659,8 @@ function getMessageExecutableParts(message, host = null) {
         codeNodes.forEach((node) => {
             const text = String(node.textContent || '').trim();
             if (!text) return;
-            const analysis = scoreFullPageAppHtml(text);
-            if (analysis.score >= 8 && !seen.has(text)) {
+            const analysis = analyzeRuntimeCandidate(text);
+            if (analysis.isCandidate && !seen.has(text)) {
                 seen.add(text);
                 parts.push({ type: 'app-stage', text });
             }
@@ -685,6 +699,31 @@ function createRuntimeCandidateCache() {
         floorMap: new Map(),
         executableFloorsKey: '',
         executableFloors: [],
+    };
+}
+
+
+function looksLikeFrontendSnippet(source) {
+    const text = String(source || '').toLowerCase();
+    return ['html>', '<head>', '<body', '<!doctype html'].some(token => text.includes(token));
+}
+
+
+function analyzeRuntimeCandidate(source) {
+    const normalizedText = String(source || '').trim();
+    const analysis = scoreFullPageAppHtml(normalizedText);
+    const frontendLike = looksLikeFrontendSnippet(normalizedText);
+    const boostedScore = frontendLike && analysis.score < 8 ? analysis.score + 8 : analysis.score;
+    const reasons = frontendLike && !analysis.reasons.includes('frontend-like')
+        ? [...analysis.reasons, 'frontend-like']
+        : analysis.reasons;
+
+    return {
+        ...analysis,
+        score: boostedScore,
+        reasons,
+        frontendLike,
+        isCandidate: frontendLike || analysis.score >= 8,
     };
 }
 
@@ -728,8 +767,8 @@ function wrapRuntimeHostsInContainer(container, floor) {
             .replace(/^```(?:html|text|xml)?\s*/i, '')
             .replace(/```$/i, '')
             .trim();
-        const analysis = scoreFullPageAppHtml(normalizedText);
-        if (analysis.score < 8) return;
+        const analysis = analyzeRuntimeCandidate(normalizedText);
+        if (!analysis.isCandidate) return;
 
         const existingWrapper = preNode.parentElement?.classList.contains('chat-inline-runtime-wrap')
             ? preNode.parentElement
@@ -843,8 +882,8 @@ function extractRuntimeCandidatesFromContainer(container) {
             .replace(/```$/i, '')
             .trim();
         if (!text || seen.has(text)) return;
-        const analysis = scoreFullPageAppHtml(normalizedText);
-        if (analysis.score >= 8) {
+        const analysis = analyzeRuntimeCandidate(normalizedText);
+        if (analysis.isCandidate) {
             seen.add(text);
             parts.push({
                 type: 'app-stage',
@@ -1063,13 +1102,7 @@ function extractTagBlockWithIndex(messageText, tagNames = []) {
 function buildReaderParsedMessage(rawMessage, floor, config, options = {}) {
     const source = rawMessage && typeof rawMessage === 'object' ? rawMessage : {};
     const messageText = normalizeReaderMessageSource(source);
-    const macroContext = options.macroContext && typeof options.macroContext === 'object' ? options.macroContext : {};
-    const placement = resolveReaderRegexPlacement(source);
-    const depth = typeof options.depth === 'number' ? options.depth : null;
     const treatedAsSystem = Boolean(source.is_system) && !isReaderRenderableSystemMessage(source);
-    const displaySource = treatedAsSystem
-        ? messageText
-        : buildReaderDisplaySource(messageText, config, { placement, isMarkdown: true, macroContext, depth });
 
     return {
         floor: Number(floor || 0),
@@ -1080,8 +1113,8 @@ function buildReaderParsedMessage(rawMessage, floor, config, options = {}) {
         mes: messageText,
         swipes: Array.isArray(source.swipes) ? source.swipes : [],
         extra: source.extra && typeof source.extra === 'object' ? source.extra : {},
-        content: displaySource,
-        display_source: displaySource,
+        content: messageText,
+        display_source: treatedAsSystem ? messageText : '',
         rendered_display_html: '',
         time_bar: null,
         summary: null,
@@ -1109,6 +1142,37 @@ function buildCompactPreview(message, limit = DEFAULT_CHAT_READER_VIEW_SETTINGS.
     if (!compact) return '空内容';
     if (compact.length <= limit) return compact;
     return `${compact.slice(0, limit)}...`;
+}
+
+
+function buildPlaceholderPreview(message, limit = 72) {
+    const source = message && typeof message === 'object' ? message : {};
+    const base = source.time_bar
+        ? `${source.time_bar} · ${source.name || ''}`
+        : `${source.name || ''}`;
+    const compact = buildCompactPreview(source, Math.max(32, limit)).replace(/\s+/g, ' ').trim();
+    if (!compact) {
+        return (base || '历史楼层').trim();
+    }
+    return `${(base || '历史楼层').trim()} · ${compact}`.trim();
+}
+
+
+function ensureReaderDisplaySource(message, config, options = {}) {
+    const source = message && typeof message === 'object' ? message : {};
+    if (source.display_source) {
+        return String(source.display_source || '');
+    }
+
+    const messageText = normalizeReaderMessageSource(source);
+    const treatedAsSystem = Boolean(source.is_system) && !isReaderRenderableSystemMessage(source);
+    const nextDisplaySource = treatedAsSystem
+        ? messageText
+        : buildReaderDisplaySource(messageText, config, options);
+
+    source.display_source = String(nextDisplaySource || '');
+    source.content = source.display_source || messageText;
+    return source.display_source;
 }
 
 
@@ -1334,10 +1398,14 @@ export default function chatGrid() {
             const windowEndFloor = Math.min(total, Math.max(windowStartFloor, Number(this.readerWindowEndFloor || total)));
             const fullCount = Number(this.readerViewSettings.fullDisplayCount || DEFAULT_CHAT_READER_VIEW_SETTINGS.fullDisplayCount);
             const renderNearby = Number(this.readerViewSettings.renderNearbyCount || DEFAULT_CHAT_READER_VIEW_SETTINGS.renderNearbyCount);
+            const simpleRenderRadius = Number(this.readerViewSettings.simpleRenderRadius || DEFAULT_CHAT_READER_VIEW_SETTINGS.simpleRenderRadius);
+            const hiddenHistoryThreshold = Number(this.readerViewSettings.hiddenHistoryThreshold || DEFAULT_CHAT_READER_VIEW_SETTINGS.hiddenHistoryThreshold);
             const compactPreviewLength = Number(this.readerViewSettings.compactPreviewLength || DEFAULT_CHAT_READER_VIEW_SETTINGS.compactPreviewLength);
             const lastAlwaysVisibleFloor = Math.max(1, total - fullCount + 1);
             const expansionStartFloor = Math.max(1, currentFloor - renderNearby);
             const expansionEndFloor = Math.min(total, currentFloor + renderNearby);
+            const simpleStartFloor = Math.max(1, currentFloor - simpleRenderRadius);
+            const simpleEndFloor = Math.min(total, currentFloor + simpleRenderRadius);
             const cache = getReaderVisibleMessagesCache(this);
 
             if (cache
@@ -1349,6 +1417,8 @@ export default function chatGrid() {
                 && cache.windowEndFloor === windowEndFloor
                 && cache.fullCount === fullCount
                 && cache.renderNearby === renderNearby
+                && cache.simpleRenderRadius === simpleRenderRadius
+                && cache.hiddenHistoryThreshold === hiddenHistoryThreshold
                 && cache.compactPreviewLength === compactPreviewLength) {
                 return cache.result;
             }
@@ -1358,12 +1428,47 @@ export default function chatGrid() {
                 .map((message) => ({
                 ...message,
                 is_bookmarked: bookmarkSet.has(Number(message.floor || 0)),
-                is_full_display: Number(message.floor || 0) >= lastAlwaysVisibleFloor
-                    || Number(message.floor || 0) >= expansionStartFloor && Number(message.floor || 0) <= expansionEndFloor,
-                should_render_full: Number(message.floor || 0) >= expansionStartFloor
-                    && Number(message.floor || 0) <= expansionEndFloor,
-                compact_preview: buildCompactPreview(message, compactPreviewLength),
+                compact_preview: '',
+                placeholder_preview: '',
                 }));
+
+            messages = messages.map((message) => {
+                const floor = Number(message.floor || 0);
+                const isRecentFloor = floor >= lastAlwaysVisibleFloor;
+                const inFullBand = floor >= expansionStartFloor && floor <= expansionEndFloor;
+                const inSimpleBand = floor >= simpleStartFloor && floor <= simpleEndFloor;
+                const floorDistance = Math.abs(floor - currentFloor);
+                const shouldHideHistory = hiddenHistoryThreshold > 0
+                    && floor < lastAlwaysVisibleFloor
+                    && floorDistance > hiddenHistoryThreshold;
+
+                let renderTier = 'hidden';
+                if (isRecentFloor || inFullBand) {
+                    renderTier = 'full';
+                } else if (inSimpleBand) {
+                    renderTier = 'simple';
+                } else if (!shouldHideHistory) {
+                    renderTier = 'compact';
+                }
+
+                return {
+                    ...message,
+                    compact_preview: buildCompactPreview({
+                        ...message,
+                        content: message.display_source || message.content || message.mes || '',
+                    }, compactPreviewLength),
+                    placeholder_preview: buildPlaceholderPreview({
+                        ...message,
+                        content: message.display_source || message.content || message.mes || '',
+                    }),
+                    render_tier: renderTier,
+                    is_full_display: renderTier !== 'hidden',
+                    should_render_full: renderTier === 'full',
+                    should_render_simple: renderTier === 'simple',
+                    should_render_placeholder: renderTier === 'hidden',
+                    is_compact_display: renderTier === 'compact',
+                };
+            });
 
             if (this.detailBookmarkedOnly) {
                 messages = messages.filter(item => item.is_bookmarked);
@@ -1378,6 +1483,8 @@ export default function chatGrid() {
                 windowEndFloor,
                 fullCount,
                 renderNearby,
+                simpleRenderRadius,
+                hiddenHistoryThreshold,
                 compactPreviewLength,
                 result: messages,
             });
@@ -1458,6 +1565,19 @@ export default function chatGrid() {
                 messageid: source.id || String(floor || ''),
                 mes: String(source.mes || ''),
             };
+        },
+
+        ensureMessageDisplaySource(message) {
+            if (!message) return '';
+            const floor = Number(message.floor || 0);
+            const rawMessages = Array.isArray(this.activeChat?.raw_messages) ? this.activeChat.raw_messages : [];
+            const rawMessage = floor > 0 ? rawMessages[floor - 1] : null;
+            return ensureReaderDisplaySource(message, this.activeRegexConfig, {
+                placement: resolveReaderRegexPlacement(rawMessage || message),
+                isMarkdown: true,
+                macroContext: this.buildReaderRegexMacroContext(rawMessage || message, floor),
+                depth: resolveReaderMessageDepth(rawMessages, floor),
+            });
         },
 
         classifyFrontendPreText(text) {
@@ -1697,6 +1817,9 @@ export default function chatGrid() {
             this.chatAppStage = new ChatAppStage({
                 onTriggerSlash: async (command) => {
                     await this.executeAppStageSlash(command);
+                },
+                onToast: (message, duration) => {
+                    this.$store.global.showToast(String(message || ''), Number.isFinite(Number(duration)) ? Number(duration) : 2200);
                 },
                 onAppError: (error) => {
                     console.error('[ChatAppStage]', error);
@@ -2612,6 +2735,21 @@ export default function chatGrid() {
             this.activeChat.runtime_candidate_cache = createRuntimeCandidateCache();
             const anchorFloor = Number(this.readerViewportFloor || this.activeChat.last_view_floor || rawMessages.length || 1);
             this.setReaderWindowAroundFloor(anchorFloor, 'center');
+            const warmupStart = Math.max(1, anchorFloor - Math.max(
+                Number(this.readerViewSettings.renderNearbyCount || DEFAULT_CHAT_READER_VIEW_SETTINGS.renderNearbyCount),
+                Number(this.readerViewSettings.simpleRenderRadius || DEFAULT_CHAT_READER_VIEW_SETTINGS.simpleRenderRadius),
+            ));
+            const warmupEnd = Math.min(rawMessages.length, anchorFloor + Math.max(
+                Number(this.readerViewSettings.renderNearbyCount || DEFAULT_CHAT_READER_VIEW_SETTINGS.renderNearbyCount),
+                Number(this.readerViewSettings.simpleRenderRadius || DEFAULT_CHAT_READER_VIEW_SETTINGS.simpleRenderRadius),
+                Number(this.readerViewSettings.fullDisplayCount || DEFAULT_CHAT_READER_VIEW_SETTINGS.fullDisplayCount),
+            ));
+            this.activeChat.messages.forEach((message) => {
+                const floor = Number(message.floor || 0);
+                if (floor >= warmupStart && floor <= warmupEnd) {
+                    this.ensureMessageDisplaySource(message);
+                }
+            });
             resetReaderVisibleMessagesCache(this);
         },
 
@@ -2871,7 +3009,7 @@ export default function chatGrid() {
         },
 
         renderMessageDisplayHtml(message) {
-            const source = String(message?.display_source || message?.content || '');
+            const source = String(this.ensureMessageDisplaySource(message) || message?.content || '');
             const scopeClass = `st-reader-floor-${Number(message?.floor || 0) || 0}`;
             const flags = resolveReaderFormatFlags(message);
             const html = formatScopedDisplayedHtml(source, {
@@ -2887,24 +3025,64 @@ export default function chatGrid() {
             const floor = Number(message?.floor || 0);
 
             if (floor > 0) {
-                this.renderedFloorHtmlCache.set(floor, html);
-                if (message && typeof message === 'object') {
-                    message.rendered_display_html = html;
-                }
-                if (Array.isArray(this.activeChat?.messages)) {
-                    const originalMessage = this.activeChat.messages.find(item => Number(item?.floor || 0) === floor);
-                    if (originalMessage && originalMessage !== message) {
-                        originalMessage.rendered_display_html = html;
+                const previousHtml = String(this.renderedFloorHtmlCache.get(floor) || message?.rendered_display_html || '');
+                if (previousHtml !== html) {
+                    this.renderedFloorHtmlCache.set(floor, html);
+                    if (message && typeof message === 'object') {
+                        message.rendered_display_html = html;
                     }
+                    if (Array.isArray(this.activeChat?.messages)) {
+                        const originalMessage = this.activeChat.messages.find(item => Number(item?.floor || 0) === floor);
+                        if (originalMessage && originalMessage !== message) {
+                            originalMessage.rendered_display_html = html;
+                        }
+                    }
+                    this.runtimeCandidateCache.floorMap.delete(floor);
+                    this.runtimeCandidateCache.executableFloorsKey = '';
                 }
-                this.runtimeCandidateCache.floorMap.delete(floor);
-                this.runtimeCandidateCache.executableFloorsKey = '';
             }
             return html;
         },
 
+        renderMessageSimpleHtml(message) {
+            const source = String(this.ensureMessageDisplaySource(message) || message?.content || message?.mes || '');
+            if (!source.trim()) {
+                return '<div class="chat-message-content chat-message-content--compact">空内容</div>';
+            }
+
+            return renderMarkdown(source);
+        },
+
+        syncMessageDisplay(el, message, variant = 'full') {
+            if (!(el instanceof Element) || !message) return;
+
+            const floor = Number(message?.floor || 0);
+            const html = variant === 'simple'
+                ? this.renderMessageSimpleHtml(message)
+                : this.renderMessageDisplayHtml(message);
+            const signature = JSON.stringify({
+                floor,
+                variant,
+                renderMode: this.readerRenderMode,
+                componentMode: variant === 'full' ? this.readerComponentMode : false,
+                html,
+            });
+
+            if (el.__stmReaderDisplaySignature !== signature) {
+                this.destroyMessageRenderPart(el);
+                el.innerHTML = html;
+                el.__stmReaderDisplaySignature = signature;
+                el.__stmReaderDisplayVariant = variant;
+            }
+
+            if (variant === 'full') {
+                this.mountMessageDisplayNow(el, message);
+            }
+        },
+
         shouldRenderMessageAsApp(message) {
             if (!message) return false;
+            if (String(message.render_tier || '') !== 'full') return false;
             return this.readerComponentMode
                 && shouldExecuteMessageSegments(message, this.activeChat, this.readerViewSettings, this.renderedFloorHtmlCache);
         },
@@ -3066,6 +3244,9 @@ export default function chatGrid() {
                         onTriggerSlash: async (command) => {
                             await this.executeAppStageSlash(command);
                         },
+                        onToast: (message, duration) => {
+                            this.$store.global.showToast(String(message || ''), Number.isFinite(Number(duration)) ? Number(duration) : 2200);
+                        },
                         onAppError: (error) => {
                             console.error('[ChatMessageAppStage]', error);
                             this.$store.global.showToast(`实例错误: ${error.message}`, 2600);
@@ -3107,6 +3288,7 @@ export default function chatGrid() {
             });
 
             clearInlineIsolatedHtml(el, { clearShadow: true });
+            this.readerSegmentRegistry.delete(el);
         },
 
         mountReaderRender(el, text) {
@@ -3454,7 +3636,8 @@ export default function chatGrid() {
             const matches = [];
             const sourceMessages = Array.isArray(this.activeChat.messages) ? this.activeChat.messages : [];
             sourceMessages.forEach((message) => {
-                const text = `${message.name || ''}\n${message.content || ''}\n${message.mes || ''}`.toLowerCase();
+                const displaySource = this.ensureMessageDisplaySource(message);
+                const text = `${message.name || ''}\n${displaySource || ''}\n${message.mes || ''}`.toLowerCase();
                 if (text.includes(query)) {
                     matches.push(Number(message.floor || 0));
                 }
@@ -3577,7 +3760,7 @@ export default function chatGrid() {
                     id: `${floor}_${Date.now()}`,
                     floor,
                     label: String(this.bookmarkDraft || '').trim(),
-                    text: String(message.content || message.mes || '').trim().slice(0, 120),
+                    text: String(this.ensureMessageDisplaySource(message) || message.mes || '').trim().slice(0, 120),
                     created_at: Date.now() / 1000,
                 });
                 this.bookmarkDraft = '';
