@@ -2668,11 +2668,6 @@ export default function chatGrid() {
                     matchedFloors: [],
                     status: `未检测到整页实例（已检查 ${this.activeChat.raw_messages.length} 条消息）`,
                 };
-                console.info('[ChatAppMode] no candidate detected', {
-                    chatId: this.activeChat.id,
-                    checkedCount: this.activeChat.raw_messages.length,
-                    regexConfig: this.activeRegexConfig,
-                });
                 if (this.chatAppStage) {
                     this.chatAppStage.clear();
                 }
@@ -3327,16 +3322,6 @@ export default function chatGrid() {
                 snippets: this.readerRuntimeDebug.snippets,
             };
 
-            if (this.readerRuntimeDebug.enabled) {
-                console.info('[STM runtime debug]', {
-                    floor,
-                    preCount,
-                    candidateCount: candidates.length,
-                    wrappedCount: wrappedHosts.length,
-                    scores: this.readerRuntimeDebug.scores,
-                    snippets: this.readerRuntimeDebug.snippets,
-                });
-            }
         },
 
         mountMessageDisplay(el, message) {
