@@ -95,33 +95,6 @@ function classifyPreviewFrontendText(text, options = {}) {
     };
 }
 
-function shouldRenderPreviewTextAsPlainText(text) {
-    const source = String(text || '').trim();
-    if (!source) {
-        return false;
-    }
-
-    if (/^\s*<(?:[a-z][\w:-]*|!doctype|!--)/i.test(source)) {
-        return false;
-    }
-
-    if (/^\s{4,}\S/m.test(source)) {
-        return true;
-    }
-
-    const markdownSignals = [
-        /^#{1,6}\s/m,
-        /^\s*[-*+]\s+/m,
-        /^\s*\d+\.\s+/m,
-        /^\s*>\s+/m,
-        /```/,
-        /\[[^\]]+\]\([^)]+\)/,
-        /^\s*\|.+\|\s*$/m,
-    ];
-
-    return !markdownSignals.some((pattern) => pattern.test(source));
-}
-
 function buildMixedPreviewParts(content, options = {}) {
     const rawContent = String(content || '');
     const trimmedContent = rawContent.trim();
@@ -175,7 +148,7 @@ function buildMixedPreviewParts(content, options = {}) {
     const parts = [];
     if (cleanedCommentary) {
         parts.push({
-            type: shouldRenderPreviewTextAsPlainText(cleanedCommentary) ? 'text' : 'markdown',
+            type: 'markdown',
             text: cleanedCommentary,
         });
     }
@@ -191,7 +164,7 @@ function buildMixedPreviewParts(content, options = {}) {
 
     if (!parts.length) {
         parts.push({
-            type: shouldRenderPreviewTextAsPlainText(trimmedContent) ? 'text' : 'markdown',
+            type: 'markdown',
             text: trimmedContent,
         });
     }
@@ -603,24 +576,6 @@ export function updateMixedPreviewContent(el, content, options = {}) {
                 max-width: 100%;
                 height: auto;
             }
-            .mixed-preview-host .preview-plain-text {
-                padding: 0.9rem 1rem;
-                border-radius: 12px;
-                border: 1px solid color-mix(in srgb, var(--accent-main, #3b82f6) 30%, var(--border-light, #334155));
-                background: color-mix(in srgb, var(--bg-body, #0f172a) 72%, transparent);
-                color: inherit;
-                white-space: pre-wrap;
-                overflow-wrap: anywhere;
-                word-break: break-word;
-                line-height: 1.85;
-                box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
-            }
-            .mixed-preview-host .preview-plain-text > :first-child {
-                margin-top: 0;
-            }
-            .mixed-preview-host .preview-plain-text > :last-child {
-                margin-bottom: 0;
-            }
             .mixed-preview-host pre {
                 background: rgba(0,0,0,0.3);
                 padding: 1em;
@@ -632,6 +587,9 @@ export function updateMixedPreviewContent(el, content, options = {}) {
             }
             .mixed-preview-host code {
                 font-family: monospace;
+                white-space: inherit;
+                overflow-wrap: anywhere;
+                word-break: break-word;
             }
             .mixed-preview-scroll::-webkit-scrollbar,
             .mixed-preview-host pre::-webkit-scrollbar {
