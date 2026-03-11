@@ -563,7 +563,8 @@ html.light-mode .detail-thumb-label {
 
 .detail-section-fill .detail-card {
     display: flex;
-    flex-direction: column
+    flex-direction: column;
+    min-width: 0
 }
 
 .detail-section-fill .form-textarea {
@@ -1310,7 +1311,8 @@ html.light-mode .detail-thumb-label {
     display: flex;
     flex-direction: column;
     gap: 12px;
-    min-height: 0
+    min-height: 0;
+    overflow-x: hidden
 }
 
 .detail-section-fill .detail-tab-scroll>.detail-card {
@@ -1338,14 +1340,6 @@ html.light-mode .detail-thumb-label {
     border-radius: 0.375rem;
     transition: border-color 0.2s, background-color 0.2s;
     box-sizing: border-box
-}
-
-.detail-section-fill .detail-tab-scroll {
-    overflow-x: hidden
-}
-
-.detail-section-fill .detail-card {
-    min-width: 0
 }
 
 .detail-section-fill .detail-card .detail-dialog-grow-box {

@@ -624,7 +624,7 @@
     min-height: 0;
     overflow: hidden;
     padding: 0;
-    background: var(--bg-sub);
+    background: var(--bg-sub)
 }
 
 .toggle-pill {
