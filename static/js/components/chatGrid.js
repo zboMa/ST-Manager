@@ -45,6 +45,12 @@ const REGEX_RULE_SOURCE_META = {
     unknown: { label: '来源未识别', order: 9, tone: 'muted' },
 };
 
+REGEX_RULE_SOURCE_META.reader_import = {
+    label: '阅读器配置导入',
+    order: 2.5,
+    tone: 'info',
+};
+
 const DEFAULT_CHAT_READER_VIEW_SETTINGS = {
     fullDisplayCount: 2,
     renderNearbyCount: 4,
@@ -399,6 +405,64 @@ function filterReaderDisplayRules(rules) {
         if (!Array.isArray(rule.placement) || rule.placement.length === 0) return true;
         return rule.placement.includes(2);
     });
+}
+
+
+function extractReaderRegexConfig(jsonData) {
+    const candidates = [];
+
+    if (jsonData && typeof jsonData === 'object') {
+        candidates.push(jsonData);
+
+        if (jsonData.reader_regex_config && typeof jsonData.reader_regex_config === 'object') {
+            candidates.push(jsonData.reader_regex_config);
+        }
+
+        if (jsonData.metadata?.reader_regex_config && typeof jsonData.metadata.reader_regex_config === 'object') {
+            candidates.push(jsonData.metadata.reader_regex_config);
+        }
+
+        if (jsonData.config) {
+            if (typeof jsonData.config === 'string') {
+                try {
+                    const parsedConfig = JSON.parse(jsonData.config);
+                    if (parsedConfig && typeof parsedConfig === 'object') {
+                        candidates.push(parsedConfig);
+                    }
+                } catch {
+                    // Ignore invalid nested JSON strings.
+                }
+            } else if (typeof jsonData.config === 'object') {
+                candidates.push(jsonData.config);
+            }
+        }
+    }
+
+    for (const candidate of candidates) {
+        if (!candidate || typeof candidate !== 'object' || !Array.isArray(candidate.displayRules)) {
+            continue;
+        }
+
+        return normalizeRegexConfig(candidate, { fillDefaults: false });
+    }
+
+    return null;
+}
+
+
+function importReaderRegexConfig(currentConfig, importedConfig, options = {}) {
+    const fillDefaults = options.fillDefaults !== false;
+    const nextConfig = normalizeRegexConfig(currentConfig, { fillDefaults });
+    const normalizedImport = markRegexConfigRuleSource(
+        normalizeRegexConfig(importedConfig, { fillDefaults: false }),
+        options.source || 'reader_import',
+    );
+
+    if (options.mode === 'replace') {
+        return normalizeRegexConfig(normalizedImport, { fillDefaults });
+    }
+
+    return mergeRegexConfigs(nextConfig, normalizedImport);
 }
 
 
@@ -5540,9 +5604,31 @@ export default function chatGrid() {
             reader.onload = () => {
                 try {
                     const data = JSON.parse(String(reader.result || '{}'));
+                    const importedReaderConfig = extractReaderRegexConfig(data);
+                    if (importedReaderConfig) {
+                        const importedCount = Array.isArray(importedReaderConfig.displayRules)
+                            ? importedReaderConfig.displayRules.length
+                            : 0;
+                        this.regexConfigDraft = importReaderRegexConfig(this.regexConfigDraft, importedReaderConfig, {
+                            fillDefaults: false,
+                            source: 'reader_import',
+                            mode: 'merge',
+                        });
+                        this.regexConfigStatus = importedCount > 0
+                            ? `已从阅读器配置导入 ${importedCount} 条规则，保存后会并入当前聊天`
+                            : '已识别到阅读器配置文件，但其中没有可导入的显示规则';
+                        return;
+                    }
+
                     const rules = parseSillyTavernRegexRules(data);
                     if (!rules.length) {
-                        alert('未在该文件中识别到可用的 SillyTavern 正则规则');
+                        alert('未在该文件中识别到可用的聊天阅读器或 SillyTavern 正则规则');
+                        return;
+                    }
+
+                    const importableRules = filterReaderDisplayRules(rules);
+                    if (!importableRules.length) {
+                        alert('已识别到 ST 规则，但其中没有适用于聊天阅读显示的规则');
                         return;
                     }
 
@@ -5553,7 +5639,8 @@ export default function chatGrid() {
                         source: importSource,
                         mode: 'merge',
                     });
-                    this.regexConfigStatus = `已从${importMeta.label}导入 ${rules.length} 条规则，保存后会并入当前聊天`;
+                    this.regexConfigStatus = `已从${importMeta.label}导入 ${importableRules.length} 条聊天阅读规则，保存后会并入当前聊天`;
+                    return;
                 } catch (err) {
                     alert(`导入规则失败: ${err.message || err}`);
                 } finally {

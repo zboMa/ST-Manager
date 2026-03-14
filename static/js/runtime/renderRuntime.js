@@ -32,20 +32,6 @@ function resolveMaxHeight(host, provided) {
     return DEFAULT_MAX_HEIGHT;
 }
 
-function findRuntimeByContentWindow(contentWindow) {
-    if (!contentWindow) {
-        return null;
-    }
-
-    for (const runtime of runtimes.values()) {
-        if (runtime.iframe && runtime.iframe.contentWindow === contentWindow) {
-            return runtime;
-        }
-    }
-
-    return null;
-}
-
 function ensureGlobalListeners() {
     if (listenersAttached) {
         return;
@@ -56,14 +42,6 @@ function ensureGlobalListeners() {
     window.addEventListener('message', event => {
         const data = event && event.data ? event.data : null;
         if (!data) {
-            return;
-        }
-
-        if (data.type === 'resizeIframe') {
-            const legacyRuntime = findRuntimeByContentWindow(event.source);
-            if (legacyRuntime) {
-                legacyRuntime.applyMeasuredHeight(Number(data.height));
-            }
             return;
         }
 

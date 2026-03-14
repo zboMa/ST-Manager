@@ -366,8 +366,8 @@
             <div class="chat-reader-regex-toolbar">
                 <div class="chat-reader-regex-toolbar-group">
                     <span class="chat-reader-regex-toolbar-label">导入</span>
-                    <label class="chat-toolbar-btn chat-reader-file-btn">
-                        导入 ST 预设/Regex
+                    <label class="chat-toolbar-btn chat-reader-file-btn" title="支持 ST 预设、Regex 和聊天阅读器导出 JSON">
+                        导入 JSON（ST/阅读器）
                         <input type="file" accept=".json" hidden @change="importRegexConfigFile($event)">
                     </label>
                     <button class="chat-toolbar-btn" @click="addRegexDisplayRule()">新增手写规则</button>
