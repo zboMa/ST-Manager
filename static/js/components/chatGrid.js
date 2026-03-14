@@ -6367,9 +6367,13 @@ export default function chatGrid() {
                     return;
                 }
 
+                const nextChatId = res.chat?.id || res.id || chatId;
                 this.fetchChats();
                 window.dispatchEvent(new CustomEvent('refresh-detail-chats'));
                 if (this.activeChat && this.activeChat.id === chatId) {
+                    if (nextChatId !== chatId) {
+                        this.activeChat.id = nextChatId;
+                    }
                     await this.reloadActiveChat();
                 }
                 this.closeBindPicker();

@@ -1,5 +1,6 @@
 import logging
 import os
+import shutil
 import time
 
 from flask import Blueprint, jsonify, request
@@ -10,6 +11,7 @@ from core.data.chat_store import (
     delete_chat_entry,
     ensure_chat_entry,
     load_chat_data,
+    rename_chat_entry,
     save_chat_data,
 )
 from core.data.ui_store import load_ui_data, save_ui_data
@@ -255,6 +257,110 @@ def _derive_card_character_name(card_id: str) -> str:
         pass
 
     return os.path.splitext(os.path.basename(card_id or 'untitled'))[0]
+
+
+def _resolve_chat_folder_name(card_id: str = '', character_name: str = '', fallback: str = 'Imported') -> str:
+    if card_id:
+        raw_name = _derive_card_character_name(card_id)
+    else:
+        raw_name = str(character_name or '').strip()
+
+    if not raw_name:
+        return fallback
+
+    folder_name = sanitize_filename(raw_name).strip()
+    return folder_name or fallback
+
+
+def _build_chat_target_path(target_dir: str, filename: str) -> str:
+    safe_filename = sanitize_filename(os.path.basename(filename or '')).strip()
+    if not safe_filename:
+        safe_filename = 'chat.jsonl'
+
+    target_path = os.path.join(target_dir, safe_filename)
+    name_part, ext = os.path.splitext(safe_filename)
+    counter = 1
+    while os.path.exists(target_path):
+        target_path = os.path.join(target_dir, f'{name_part}_{counter}{ext}')
+        counter += 1
+    return target_path
+
+
+def _rename_chat_in_bindings(ui_data: dict, old_chat_id: str, new_chat_id: str):
+    changed = False
+    old_target = _normalize_chat_id(old_chat_id)
+    new_target = _normalize_chat_id(new_chat_id)
+
+    if not old_target or not new_target or old_target == new_target or not isinstance(ui_data, dict):
+        return False
+
+    for key, value in ui_data.items():
+        if _chat_special_ui_key(key) or not isinstance(value, dict):
+            continue
+
+        current = _ensure_ui_chat_list(value)
+        if old_target not in current:
+            continue
+
+        next_ids = []
+        seen = set()
+        for item in current:
+            candidate = new_target if item == old_target else item
+            if not candidate or candidate in seen:
+                continue
+            seen.add(candidate)
+            next_ids.append(candidate)
+
+        if _set_ui_chat_list(value, next_ids):
+            changed = True
+
+    return changed
+
+
+def _set_chat_character_name(chat_data: dict, chat_id: str, character_name: str):
+    target = _normalize_chat_id(chat_id)
+    next_name = str(character_name or '').strip()
+    if not target or not next_name or not isinstance(chat_data, dict):
+        return False
+
+    entry = chat_data.get(target)
+    if not isinstance(entry, dict):
+        return False
+
+    if str(entry.get('character_name') or '').strip() == next_name:
+        return False
+
+    entry['character_name'] = next_name
+    entry['updated_at'] = time.time()
+    chat_data[target] = entry
+    return True
+
+
+def _move_chat_to_bound_folder(chat_id: str, card_id: str, chat_data: dict, ui_data: dict):
+    source_chat_id = _normalize_chat_id(chat_id)
+    source_path = _chat_abs_path(source_chat_id)
+    if not os.path.exists(source_path):
+        raise FileNotFoundError('聊天记录不存在')
+
+    target_folder_name = _resolve_chat_folder_name(card_id=card_id)
+    target_dir = os.path.join(_get_chats_root(), target_folder_name)
+    source_dir = os.path.dirname(source_path)
+
+    if os.path.abspath(source_dir) == os.path.abspath(target_dir):
+        return source_chat_id, source_path, False, False, False
+
+    os.makedirs(target_dir, exist_ok=True)
+    target_path = _build_chat_target_path(target_dir, os.path.basename(source_path))
+    shutil.move(source_path, target_path)
+    invalidate_chat_jsonl_index(source_path)
+    invalidate_chat_jsonl_index(target_path)
+
+    target_chat_id = _relative_chat_id(target_path)
+    chat_changed = rename_chat_entry(chat_data, source_chat_id, target_chat_id)
+    ui_changed = _rename_chat_in_bindings(ui_data, source_chat_id, target_chat_id)
+
+    _cleanup_empty_chat_dirs(source_dir)
+    return target_chat_id, target_path, True, chat_changed, ui_changed
 
 
 def _refresh_chat_entry(chat_id: str, full_path: str, chat_data: dict, need_messages: bool = False):
@@ -706,24 +812,61 @@ def api_bind_chat():
         if not _is_safe_chat_rel(chat_id):
             return jsonify({'success': False, 'msg': '非法聊天路径'}), 400
 
+        chat_data = load_chat_data()
         ui_data = load_ui_data()
-        changed = False
+        ui_changed = False
+        chat_changed = False
         bindings = []
+        effective_chat_id = chat_id
+        effective_full_path = _chat_abs_path(chat_id)
+        moved = False
 
         if unbind or not card_id:
-            changed = _remove_chat_from_bindings(ui_data, chat_id)
-            bindings = _build_binding_info(ui_data, chat_id)
+            ui_changed = _remove_chat_from_bindings(ui_data, effective_chat_id)
+            bindings = _build_binding_info(ui_data, effective_chat_id)
         else:
-            changed, bindings = _bind_chat_to_card(ui_data, chat_id, card_id)
+            effective_chat_id, effective_full_path, moved, move_chat_changed, move_ui_changed = _move_chat_to_bound_folder(
+                chat_id,
+                card_id,
+                chat_data,
+                ui_data,
+            )
+            chat_changed = chat_changed or move_chat_changed
+            ui_changed = ui_changed or move_ui_changed
 
-        if changed:
+            bind_changed, bindings = _bind_chat_to_card(ui_data, effective_chat_id, card_id)
+            ui_changed = ui_changed or bind_changed
+
+        entry, refreshed, _, _, _ = _refresh_chat_entry(
+            effective_chat_id,
+            effective_full_path,
+            chat_data,
+            need_messages=False,
+        )
+        chat_changed = chat_changed or refreshed
+
+        if not unbind and card_id:
+            if _set_chat_character_name(chat_data, effective_chat_id, _derive_card_character_name(card_id)):
+                chat_changed = True
+                entry = chat_data.get(effective_chat_id)
+
+        if chat_changed:
+            save_chat_data(chat_data)
+        if ui_changed:
             save_ui_data(ui_data)
+
+        item = _build_chat_item(effective_chat_id, entry, ui_data, full_path=effective_full_path)
 
         return jsonify({
             'success': True,
+            'id': effective_chat_id,
+            'moved': moved,
+            'chat': item,
             'bound_cards': bindings,
             'bound_card_count': len(bindings),
         })
+    except FileNotFoundError as e:
+        return jsonify({'success': False, 'msg': str(e)}), 404
     except Exception as e:
         logger.error(f'聊天绑定失败: {e}')
         return jsonify({'success': False, 'msg': str(e)})
@@ -740,11 +883,7 @@ def api_import_chats():
         if not valid_files:
             return jsonify({'success': False, 'msg': '未选择文件'})
 
-        if card_id:
-            target_folder_name = sanitize_filename(_derive_card_character_name(card_id)).strip() or 'Imported'
-        else:
-            target_folder_name = sanitize_filename(character_name).strip() or 'Imported'
-
+        target_folder_name = _resolve_chat_folder_name(card_id=card_id, character_name=character_name)
         root = _get_chats_root()
         target_dir = os.path.join(root, target_folder_name)
         os.makedirs(target_dir, exist_ok=True)
@@ -763,13 +902,8 @@ def api_import_chats():
                 failed.append({'name': file_item.filename, 'msg': '仅支持 .jsonl 聊天记录'})
                 continue
 
-            save_path = os.path.join(target_dir, filename)
-            name_part, ext = os.path.splitext(filename)
-            counter = 1
+            save_path = _build_chat_target_path(target_dir, filename)
             saved = False
-            while os.path.exists(save_path):
-                save_path = os.path.join(target_dir, f'{name_part}_{counter}{ext}')
-                counter += 1
 
             try:
                 file_item.save(save_path)
