@@ -1434,10 +1434,28 @@
     line-height: 1.5
 }
 
+.chat-reader-rule-summary--static {
+    cursor: default
+}
+
 .chat-reader-rule-body {
     display: flex;
     flex-direction: column;
     gap: 0.7rem
+}
+
+.chat-reader-rule-snippet {
+    max-height: 7.2rem;
+    overflow: auto;
+    padding: 0.7rem 0.85rem;
+    border-radius: 14px;
+    border: 1px solid var(--border-light);
+    background: color-mix(in srgb, var(--bg-body), transparent 0%);
+    color: var(--text-dim);
+    font-size: 0.8rem;
+    line-height: 1.65;
+    white-space: pre-wrap;
+    word-break: break-word
 }
 
 .chat-reader-file-btn {
@@ -1508,6 +1526,13 @@
     min-height: 0;
     overflow: auto;
     overscroll-behavior: contain
+}
+
+.chat-reader-sideblock-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    min-height: 0
 }
 
 .chat-reader-regex-rule-list {

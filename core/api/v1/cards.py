@@ -3,6 +3,7 @@ import json
 import shutil
 import uuid
 import random
+import re
 import time
 import requests
 import sqlite3
@@ -70,7 +71,10 @@ TAG_ORDER_KEY = '_tag_order_v1'
 
 def _normalize_tag_list(tags):
     """Normalize tag list and keep input order (dedup)."""
-    if not isinstance(tags, (list, tuple, set)):
+    if isinstance(tags, str):
+        # Compat: some external cards serialize tags as a single newline/comma-separated string.
+        tags = [part for part in re.split(r'[\r\n,，]+', tags) if part]
+    elif not isinstance(tags, (list, tuple, set)):
         return []
 
     out = []
@@ -2766,6 +2770,7 @@ def api_get_card_detail():
             row = cursor.fetchone()
 
         full_info = {}
+        tags = []
         if row:
             # 数据库命中
             try: tags = json.loads(row['tags']) if row['tags'] else []
@@ -2783,6 +2788,7 @@ def api_get_card_detail():
         if not file_info: return jsonify({"success": False})
         
         data_block = file_info.get('data', {}) if 'data' in file_info else file_info
+        regex_only = bool(request.json.get('regex_only', False))
         # === 提取 V3 extensions (包含 regex_scripts, tavern_helper 等) ===
         extensions = data_block.get('extensions', {})
 
@@ -2799,34 +2805,43 @@ def api_get_card_detail():
         else:
             category = card_id.rsplit('/', 1)[0] if '/' in card_id else ""
 
-        # 构造完整详情对象
-        card_data = {
-            "id": card_id,
-            "filename": os.path.basename(card_id),
-            "char_name": data_block.get('name'),
-            "description": data_block.get('description', ''),
-            "first_mes": data_block.get('first_mes', ''),
-            "alternate_greetings": data_block.get('alternate_greetings', []),
-            "mes_example": data_block.get('mes_example', ''),
-            "creator_notes": data_block.get('creator_notes', ''),
-            "personality": data_block.get('personality', ''),
-            "scenario": data_block.get('scenario', ''),
-            "system_prompt": data_block.get('system_prompt', ''),
-            "post_history_instructions": data_block.get('post_history_instructions', ''),
-            "character_book": data_block.get('character_book', None),
-            "extensions": extensions,
-            "tags": tags,
-            "category": category,
-            "creator": data_block.get('creator', ''),
-            "char_version": data_block.get('character_version', ''),
-            "image_url": f"/cards_file/{quote(card_id)}?t={mtime}",
-            "thumb_url": f"/api/thumbnail/{quote(card_id)}?t={mtime}"
-        }
+        # regex_only 用于聊天阅读器，只返回解析规则所需的轻量字段。
+        if regex_only:
+            card_data = {
+                "id": card_id,
+                "filename": os.path.basename(card_id),
+                "char_name": data_block.get('name'),
+                "extensions": extensions,
+                "category": category,
+            }
+        else:
+            card_data = {
+                "id": card_id,
+                "filename": os.path.basename(card_id),
+                "char_name": data_block.get('name'),
+                "description": data_block.get('description', ''),
+                "first_mes": data_block.get('first_mes', ''),
+                "alternate_greetings": data_block.get('alternate_greetings', []),
+                "mes_example": data_block.get('mes_example', ''),
+                "creator_notes": data_block.get('creator_notes', ''),
+                "personality": data_block.get('personality', ''),
+                "scenario": data_block.get('scenario', ''),
+                "system_prompt": data_block.get('system_prompt', ''),
+                "post_history_instructions": data_block.get('post_history_instructions', ''),
+                "character_book": data_block.get('character_book', None),
+                "extensions": extensions,
+                "tags": tags,
+                "category": category,
+                "creator": data_block.get('creator', ''),
+                "char_version": data_block.get('character_version', ''),
+                "image_url": f"/cards_file/{quote(card_id)}?t={mtime}",
+                "thumb_url": f"/api/thumbnail/{quote(card_id)}?t={mtime}"
+            }
 
         # 预览模式：嵌入式世界书可能过大，按需截断
         preview_wi = bool(request.json.get('preview_wi', False))
         force_full_wi = bool(request.json.get('force_full_wi', False))
-        if preview_wi and not force_full_wi:
+        if not regex_only and preview_wi and not force_full_wi:
             cfg = load_config()
             raw_limit = request.json.get('wi_preview_limit')
             raw_content_limit = request.json.get('wi_preview_entry_max_chars')
@@ -2851,7 +2866,7 @@ def api_get_card_detail():
                 "preview_entry_max_chars": preview_result.get('preview_entry_max_chars', 0)
             }
         # 如果 DB 有 token_count，带上（用于详情页/列表同步）
-        if row and 'token_count' in row.keys():
+        if not regex_only and row and 'token_count' in row.keys():
             card_data['token_count'] = row['token_count'] or 0
 
         # 处理 UI Cache
@@ -2895,7 +2910,8 @@ def api_get_card_detail():
             card_data['source_link'] = ui_info.get('link', '')
             card_data['resource_folder'] = ui_info.get('resource_folder', '')
 
-        card_data['tag_taxonomy'] = get_tag_taxonomy(ui_data)
+        if not regex_only:
+            card_data['tag_taxonomy'] = get_tag_taxonomy(ui_data)
 
         return jsonify({"success": True, "card": card_data})
     except Exception as e:

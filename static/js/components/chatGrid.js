@@ -23,7 +23,6 @@ import { formatScopedDisplayedHtml } from '../utils/stDisplayFormatter.js';
 import { clearActiveRuntimeContext, setActiveRuntimeContext } from '../runtime/runtimeContext.js';
 
 
-const CHAT_READER_REGEX_STORAGE_KEY = 'st_manager.chat_reader.regex_config.v1';
 const CHAT_READER_VIEW_SETTINGS_KEY = 'st_manager.chat_reader.view_settings.v1';
 const CHAT_READER_RENDER_PREFS_KEY = 'st_manager.chat_reader.render_prefs.v1';
 
@@ -36,11 +35,11 @@ const EMPTY_CHAT_READER_REGEX_CONFIG = {
 };
 
 const REGEX_RULE_SOURCE_META = {
-    draft: { label: '当前草稿', order: 0, tone: 'accent' },
-    chat: { label: '聊天专属', order: 1, tone: 'accent' },
-    card: { label: '角色卡规则', order: 2, tone: 'success' },
-    local: { label: '本地默认', order: 3, tone: 'info' },
-    builtin: { label: '内置模板', order: 4, tone: 'muted' },
+    card: { label: '角色卡', order: 1, tone: 'success' },
+    preset_import: { label: 'ST 预设导入', order: 2, tone: 'accent' },
+    regex_import: { label: 'Regex 导入', order: 3, tone: 'info' },
+    manual: { label: '手写', order: 4, tone: 'accent' },
+    chat: { label: '聊天旧规则', order: 5, tone: 'muted' },
     unknown: { label: '来源未识别', order: 9, tone: 'muted' },
 };
 
@@ -108,6 +107,35 @@ function normalizeReaderDepthMode(mode) {
 }
 
 
+function normalizeRegexRuleSource(source) {
+    switch (String(source || '').trim()) {
+        case 'card':
+            return 'card';
+        case 'preset':
+        case 'preset_import':
+        case 'st_preset':
+        case 'st_preset_import':
+            return 'preset_import';
+        case 'regex':
+        case 'regex_file':
+        case 'regex_import':
+        case 'regex_script':
+            return 'regex_import';
+        case 'manual':
+        case 'handwritten':
+            return 'manual';
+        case 'chat':
+        case 'draft':
+        case 'local':
+        case 'builtin':
+        case 'legacy_chat':
+            return 'chat';
+        default:
+            return 'unknown';
+    }
+}
+
+
 function normalizeDisplayRule(rule, index = 0) {
     const source = rule && typeof rule === 'object' ? rule : {};
     const normalizeNullableNumber = (value) => {
@@ -134,6 +162,7 @@ function normalizeDisplayRule(rule, index = 0) {
         readerMaxDepth: normalizeNullableNumber(source.readerMaxDepth ?? source.reader_max_depth),
         placement: Array.isArray(source.placement) ? source.placement : [],
         expanded: Boolean(source.expanded),
+        source: normalizeRegexRuleSource(source.source),
     };
 }
 
@@ -155,7 +184,7 @@ function buildDisplayRuleKey(rule) {
 
 
 function getRegexRuleSourceMeta(source) {
-    return REGEX_RULE_SOURCE_META[source] || REGEX_RULE_SOURCE_META.unknown;
+    return REGEX_RULE_SOURCE_META[normalizeRegexRuleSource(source)] || REGEX_RULE_SOURCE_META.unknown;
 }
 
 
@@ -171,14 +200,72 @@ function markRegexConfigRuleSource(config, source) {
 }
 
 
+function decorateRegexDisplayRules(config, fallbackSource = 'unknown') {
+    const sourceRules = Array.isArray(config?.displayRules) ? config.displayRules : [];
+    return sourceRules.map((rule, index) => {
+        const normalized = normalizeDisplayRule(rule, index);
+        const source = normalized.source !== 'unknown'
+            ? normalized.source
+            : normalizeRegexRuleSource(fallbackSource);
+        const meta = getRegexRuleSourceMeta(source);
+        return {
+            ...normalized,
+            source,
+            sourceLabel: meta.label,
+            sourceTone: meta.tone,
+            sourceOrder: meta.order,
+        };
+    });
+}
+
+
+function summarizeRegexRuleSources(rules, fallbackSource = 'unknown') {
+    const groups = decorateRegexDisplayRules({ displayRules: rules }, fallbackSource).reduce((acc, rule) => {
+        acc[rule.source] = (acc[rule.source] || 0) + 1;
+        return acc;
+    }, {});
+
+    return Object.entries(groups)
+        .sort((a, b) => getRegexRuleSourceMeta(a[0]).order - getRegexRuleSourceMeta(b[0]).order)
+        .map(([source, count]) => `${getRegexRuleSourceMeta(source).label} ${count} 条`)
+        .join(' · ');
+}
+
+
+function isRegexRuleCandidate(item) {
+    if (!item || typeof item !== 'object') return false;
+    return Boolean(
+        item.findRegex
+        || item.regex
+        || item.pattern
+        || item.expression
+        || item.match
+        || item.find
+        || item.regexPattern
+    );
+}
+
+
 function parseSillyTavernRegexRules(jsonData) {
     const rules = [];
+    const seen = new Set();
 
-    const pushRule = (item) => {
-        if (!item || typeof item !== 'object' || !item.findRegex) return;
+    const pushRule = (item, nameHint = '') => {
+        if (!isRegexRuleCandidate(item)) return;
+        const pattern = String(
+            item.findRegex
+            || item.regex
+            || item.pattern
+            || item.expression
+            || item.match
+            || item.find
+            || item.regexPattern
+            || ''
+        ).trim();
+        if (!pattern) return;
         const normalized = {
-            scriptName: String(item.scriptName || item.name || `规则 ${rules.length + 1}`).trim() || `规则 ${rules.length + 1}`,
-            findRegex: String(item.findRegex || '').trim(),
+            scriptName: String(item.scriptName || item.name || item.label || nameHint || `规则 ${rules.length + 1}`).trim() || `规则 ${rules.length + 1}`,
+            findRegex: pattern,
             replaceString: String(item.replaceString || ''),
             substituteRegex: Number(item.substituteRegex || 0),
             trimStrings: Array.isArray(item.trimStrings) ? item.trimStrings.map(entry => String(entry)) : [],
@@ -193,39 +280,75 @@ function parseSillyTavernRegexRules(jsonData) {
             readerMaxDepth: item.readerMaxDepth ?? item.reader_max_depth ?? null,
             placement: Array.isArray(item.placement) ? item.placement : [],
         };
-        const duplicate = rules.some(existing => existing.scriptName === normalized.scriptName && existing.findRegex === normalized.findRegex);
-        if (!duplicate) {
-            rules.push(normalized);
-        }
+        const key = `${normalized.scriptName}__${normalized.findRegex}__${normalized.replaceString}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        rules.push(normalized);
     };
 
-    if (Array.isArray(jsonData)) {
-        jsonData.forEach(pushRule);
-        return rules;
-    }
+    const visit = (node, nameHint = '') => {
+        if (node === null || node === undefined) return;
 
-    if (Array.isArray(jsonData?.extensions?.regex_scripts)) {
-        jsonData.extensions.regex_scripts.forEach(pushRule);
-    }
-
-    if (Array.isArray(jsonData?.extensions?.SPreset?.RegexBinding?.regexes)) {
-        jsonData.extensions.SPreset.RegexBinding.regexes.forEach(pushRule);
-    }
-
-    if (jsonData?.extensions?.SPreset?.config) {
-        try {
-            const configObj = typeof jsonData.extensions.SPreset.config === 'string'
-                ? JSON.parse(jsonData.extensions.SPreset.config)
-                : jsonData.extensions.SPreset.config;
-            if (Array.isArray(configObj?.RegexBinding?.regexes)) {
-                configObj.RegexBinding.regexes.forEach(pushRule);
-            }
-        } catch {
-            // Ignore invalid nested config payloads.
+        if (Array.isArray(node)) {
+            node.forEach((item, index) => visit(item, nameHint || `规则 ${index + 1}`));
+            return;
         }
-    }
+
+        if (typeof node !== 'object') {
+            return;
+        }
+
+        pushRule(node, nameHint);
+
+        Object.entries(node).forEach(([key, value]) => {
+            if (key === 'config') {
+                if (typeof value === 'string') {
+                    try {
+                        visit(JSON.parse(value), nameHint || key);
+                    } catch {
+                        // Ignore invalid nested config payloads.
+                    }
+                    return;
+                }
+                visit(value, nameHint || key);
+                return;
+            }
+
+            if (key === 'prompts' && Array.isArray(value)) {
+                value.forEach((prompt, index) => {
+                    if (prompt && typeof prompt === 'object' && Object.prototype.hasOwnProperty.call(prompt, 'regex')) {
+                        visit(prompt.regex, prompt.name || `${key}_${index + 1}`);
+                    }
+                });
+            }
+
+            visit(value, key);
+        });
+    };
+
+    visit(jsonData);
 
     return rules;
+}
+
+
+function detectImportedRegexSource(jsonData) {
+    if (Array.isArray(jsonData)) {
+        return jsonData.every(item => isRegexRuleCandidate(item)) ? 'regex_import' : 'preset_import';
+    }
+
+    if (!jsonData || typeof jsonData !== 'object') {
+        return 'regex_import';
+    }
+
+    const looksLikeStandaloneRule = isRegexRuleCandidate(jsonData)
+        && !jsonData.extensions
+        && !jsonData.extension_settings
+        && !jsonData.prompts
+        && !jsonData.SPreset
+        && !jsonData.RegexBinding;
+
+    return looksLikeStandaloneRule ? 'regex_import' : 'preset_import';
 }
 
 
@@ -241,33 +364,39 @@ function filterReaderDisplayRules(rules) {
 function convertRulesToReaderConfig(rules, currentConfig, options = {}) {
     const fillDefaults = options.fillDefaults !== false;
     const nextConfig = normalizeRegexConfig(currentConfig, { fillDefaults });
-    const displayRules = [];
     const displayCandidates = filterReaderDisplayRules(rules);
-    const sourceTag = options.source || 'draft';
+    const sourceTag = options.source || 'manual';
+    const mode = options.mode || 'merge';
+    const importedConfig = {
+        displayRules: [],
+    };
 
-        displayCandidates.forEach((rule) => {
-            displayRules.push(normalizeDisplayRule({
-                scriptName: rule.scriptName,
-                findRegex: rule.findRegex,
-                replaceString: rule.replaceString,
-                substituteRegex: rule.substituteRegex,
-                trimStrings: rule.trimStrings,
-                disabled: rule.disabled,
-                promptOnly: rule.promptOnly,
-                markdownOnly: rule.markdownOnly,
-                runOnEdit: rule.runOnEdit,
-                minDepth: rule.minDepth,
-                maxDepth: rule.maxDepth,
-                readerDepthMode: rule.readerDepthMode,
-                readerMinDepth: rule.readerMinDepth,
-                readerMaxDepth: rule.readerMaxDepth,
-                placement: Array.isArray(rule.placement) ? [...rule.placement] : [],
-                source: sourceTag,
-            }, displayRules.length));
-        });
+    displayCandidates.forEach((rule) => {
+        importedConfig.displayRules.push(normalizeDisplayRule({
+            scriptName: rule.scriptName,
+            findRegex: rule.findRegex,
+            replaceString: rule.replaceString,
+            substituteRegex: rule.substituteRegex,
+            trimStrings: rule.trimStrings,
+            disabled: rule.disabled,
+            promptOnly: rule.promptOnly,
+            markdownOnly: rule.markdownOnly,
+            runOnEdit: rule.runOnEdit,
+            minDepth: rule.minDepth,
+            maxDepth: rule.maxDepth,
+            readerDepthMode: rule.readerDepthMode,
+            readerMinDepth: rule.readerMinDepth,
+            readerMaxDepth: rule.readerMaxDepth,
+            placement: Array.isArray(rule.placement) ? [...rule.placement] : [],
+            source: sourceTag,
+        }, importedConfig.displayRules.length));
+    });
 
-    nextConfig.displayRules = displayRules;
-    return normalizeRegexConfig(nextConfig, { fillDefaults });
+    if (mode === 'replace') {
+        return normalizeRegexConfig(importedConfig, { fillDefaults });
+    }
+
+    return mergeRegexConfigs(nextConfig, importedConfig);
 }
 
 
@@ -333,12 +462,58 @@ function deriveReaderConfigFromCard(cardDetail) {
         return normalizeRegexConfig(EMPTY_CHAT_READER_REGEX_CONFIG, { fillDefaults: false });
     }
 
-    const rules = parseSillyTavernRegexRules(source);
+    const dataBlock = source.data && typeof source.data === 'object' ? source.data : null;
+    const extractionSource = {};
+
+    if (source.extensions && typeof source.extensions === 'object') {
+        extractionSource.extensions = source.extensions;
+    }
+    if (source.extension_settings && typeof source.extension_settings === 'object') {
+        extractionSource.extension_settings = source.extension_settings;
+    }
+    if (Array.isArray(source.regex_scripts)) {
+        extractionSource.regex_scripts = source.regex_scripts;
+    }
+    if (source.SPreset && typeof source.SPreset === 'object') {
+        extractionSource.SPreset = source.SPreset;
+    }
+    if (source.RegexBinding && typeof source.RegexBinding === 'object') {
+        extractionSource.RegexBinding = source.RegexBinding;
+    }
+    if (Array.isArray(source.prompts)) {
+        extractionSource.prompts = source.prompts;
+    }
+    if (dataBlock?.extensions && typeof dataBlock.extensions === 'object') {
+        extractionSource.data = {
+            ...(extractionSource.data || {}),
+            extensions: dataBlock.extensions,
+        };
+    }
+    if (dataBlock?.extension_settings && typeof dataBlock.extension_settings === 'object') {
+        extractionSource.data = {
+            ...(extractionSource.data || {}),
+            extension_settings: dataBlock.extension_settings,
+        };
+    }
+    if (Array.isArray(dataBlock?.prompts)) {
+        extractionSource.data = {
+            ...(extractionSource.data || {}),
+            prompts: dataBlock.prompts,
+        };
+    }
+
+    const rules = parseSillyTavernRegexRules(
+        Object.keys(extractionSource).length ? extractionSource : { extensions: source.extensions || {} },
+    );
     if (!rules.length) {
         return normalizeRegexConfig(EMPTY_CHAT_READER_REGEX_CONFIG, { fillDefaults: false });
     }
 
-    return convertRulesToReaderConfig(rules, EMPTY_CHAT_READER_REGEX_CONFIG, { fillDefaults: false, source: 'card' });
+    return convertRulesToReaderConfig(rules, EMPTY_CHAT_READER_REGEX_CONFIG, {
+        fillDefaults: false,
+        source: 'card',
+        mode: 'replace',
+    });
 }
 
 
@@ -614,26 +789,6 @@ function storeRenderPreferences(preferences) {
             CHAT_READER_RENDER_PREFS_KEY,
             JSON.stringify(normalizeRenderPreferences(preferences)),
         );
-    } catch {
-        // Ignore storage failures in the reader.
-    }
-}
-
-
-function loadStoredRegexConfig() {
-    try {
-        const raw = window.localStorage.getItem(CHAT_READER_REGEX_STORAGE_KEY);
-        if (!raw) return normalizeRegexConfig(DEFAULT_CHAT_READER_REGEX_CONFIG);
-        return normalizeRegexConfig(JSON.parse(raw));
-    } catch {
-        return normalizeRegexConfig(DEFAULT_CHAT_READER_REGEX_CONFIG);
-    }
-}
-
-
-function storeRegexConfig(config) {
-    try {
-        window.localStorage.setItem(CHAT_READER_REGEX_STORAGE_KEY, JSON.stringify(normalizeRegexConfig(config)));
     } catch {
         // Ignore storage failures in the reader.
     }
@@ -1766,7 +1921,7 @@ export default function chatGrid() {
         readerComponentMode: DEFAULT_CHAT_READER_RENDER_PREFS.componentMode,
         regexConfigOpen: false,
         regexConfigTab: 'extract',
-        regexConfigDraft: normalizeRegexConfig(DEFAULT_CHAT_READER_REGEX_CONFIG),
+        regexConfigDraft: normalizeRegexConfig(EMPTY_CHAT_READER_REGEX_CONFIG, { fillDefaults: false }),
         regexConfigStatus: '',
         regexTestInput: '',
         regexConfigSourceLabel: '',
@@ -2045,17 +2200,112 @@ export default function chatGrid() {
             return messages;
         },
 
-        get activeRegexConfig() {
-            const localDefault = loadStoredRegexConfig();
+        getChatOwnedRegexConfig(chat = null) {
+            const target = chat || this.activeChat;
+            const chatOverride = target?.metadata?.reader_regex_config || null;
+            if (!chatOverride) {
+                return normalizeRegexConfig(EMPTY_CHAT_READER_REGEX_CONFIG, { fillDefaults: false });
+            }
+            return markRegexConfigRuleSource(chatOverride, 'chat');
+        },
+
+        resolveEffectiveRegexConfig(chatConfig = null) {
             const cardDefault = hasCustomRegexConfig(this.activeCardRegexConfig)
-                ? this.activeCardRegexConfig
-                : EMPTY_CHAT_READER_REGEX_CONFIG;
-            const chatOverride = this.activeChat?.metadata?.reader_regex_config || null;
-            const localTagged = markRegexConfigRuleSource(localDefault, 'local');
-            const cardTagged = markRegexConfigRuleSource(cardDefault, 'card');
-            const chatTagged = chatOverride ? markRegexConfigRuleSource(chatOverride, 'chat') : null;
-            const mergedBase = mergeRegexConfigs(localTagged, cardTagged);
-            return chatTagged ? mergeRegexConfigs(mergedBase, chatTagged) : normalizeRegexConfig(mergedBase);
+                ? markRegexConfigRuleSource(this.activeCardRegexConfig, 'card')
+                : normalizeRegexConfig(EMPTY_CHAT_READER_REGEX_CONFIG, { fillDefaults: false });
+            const chatOverride = hasCustomRegexConfig(chatConfig)
+                ? markRegexConfigRuleSource(chatConfig, 'chat')
+                : null;
+            return chatOverride ? mergeRegexConfigs(cardDefault, chatOverride) : normalizeRegexConfig(cardDefault);
+        },
+
+        get savedChatRegexConfig() {
+            return this.getChatOwnedRegexConfig();
+        },
+
+        get activeRegexConfig() {
+            return this.resolveEffectiveRegexConfig(this.savedChatRegexConfig);
+        },
+
+        get regexDraftResolvedConfig() {
+            return this.resolveEffectiveRegexConfig(this.regexConfigDraft);
+        },
+
+        get activeRegexDisplayRules() {
+            return decorateRegexDisplayRules(this.activeRegexConfig);
+        },
+
+        get regexDraftResolvedDisplayRules() {
+            return decorateRegexDisplayRules(this.regexDraftResolvedConfig);
+        },
+
+        get savedChatRegexRuleCount() {
+            return Array.isArray(this.savedChatRegexConfig?.displayRules) ? this.savedChatRegexConfig.displayRules.length : 0;
+        },
+
+        get cardRegexRuleCount() {
+            return Array.isArray(this.activeCardRegexConfig?.displayRules) ? this.activeCardRegexConfig.displayRules.length : 0;
+        },
+
+        get regexEffectiveRuleCount() {
+            return this.activeRegexDisplayRules.length;
+        },
+
+        get regexEffectiveSourceSummary() {
+            return summarizeRegexRuleSources(this.activeRegexDisplayRules);
+        },
+
+        get regexDraftOutcomeSummary() {
+            const total = this.regexDraftResolvedDisplayRules.length;
+            if (!total) {
+                return '保存后当前聊天不会使用显示替换规则。';
+            }
+            const summary = summarizeRegexRuleSources(this.regexDraftResolvedDisplayRules);
+            return `保存后预计生效 ${total} 条${summary ? `：${summary}` : ''}`;
+        },
+
+        get regexStateCards() {
+            const hasBoundCard = Boolean(this.activeChat?.bound_card_id);
+            const hasSavedChatRules = this.savedChatRegexRuleCount > 0;
+            const hasDraftRules = this.regexDraftRuleCount > 0;
+            return [
+                {
+                    id: 'effective',
+                    title: '当前生效',
+                    state: `${this.regexEffectiveRuleCount} 条`,
+                    detail: this.regexEffectiveRuleCount
+                        ? `这里显示当前聊天真正用于解析的规则。${this.regexEffectiveSourceSummary || ''}`
+                        : '当前聊天还没有生效的显示替换规则。',
+                    tone: this.regexEffectiveRuleCount ? 'accent' : 'muted',
+                },
+                {
+                    id: 'card',
+                    title: '角色卡继承',
+                    state: hasBoundCard ? `${this.cardRegexRuleCount} 条` : '未绑定角色卡',
+                    detail: hasBoundCard
+                        ? (this.cardRegexRuleCount
+                            ? '角色卡里的规则会自动参与当前聊天解析。'
+                            : '已绑定角色卡，但卡内没有可继承的规则。')
+                        : '当前聊天未绑定角色卡。',
+                    tone: this.cardRegexRuleCount ? 'success' : 'muted',
+                },
+                {
+                    id: 'saved',
+                    title: '聊天已保存',
+                    state: hasSavedChatRules ? `${this.savedChatRegexRuleCount} 条` : '未保存',
+                    detail: hasSavedChatRules
+                        ? '这些是已经写入当前聊天文件的自定义规则。'
+                        : '当前聊天没有已保存的自定义规则。',
+                    tone: hasSavedChatRules ? 'info' : 'muted',
+                },
+                {
+                    id: 'draft',
+                    title: '当前草稿',
+                    state: `${this.regexDraftRuleCount} 条`,
+                    detail: hasDraftRules ? this.regexDraftOutcomeSummary : '当前没有聊天自定义草稿，保存时会直接继承角色卡规则。',
+                    tone: hasDraftRules ? 'accent' : 'muted',
+                },
+            ];
         },
 
         get activeReaderAssetBase() {
@@ -2719,7 +2969,7 @@ export default function chatGrid() {
                 };
             }
 
-            const previewConfig = normalizeRegexConfig(this.regexConfigDraft);
+            const previewConfig = normalizeRegexConfig(this.regexDraftResolvedConfig);
             const previewDepthInfo = {
                 tailDepth: 0,
                 anchorAbsDepth: 0,
@@ -2746,7 +2996,7 @@ export default function chatGrid() {
         },
 
         get hasChatRegexConfig() {
-            return Boolean(this.activeChat?.metadata && Object.prototype.hasOwnProperty.call(this.activeChat.metadata, 'reader_regex_config'));
+            return this.savedChatRegexRuleCount > 0;
         },
 
         get hasBoundCardRegexConfig() {
@@ -2758,74 +3008,15 @@ export default function chatGrid() {
         },
 
         get regexRuleSourceSummary() {
-            const groups = this.regexDraftDisplayRules.reduce((acc, rule) => {
-                const source = rule.source || 'unknown';
-                acc[source] = (acc[source] || 0) + 1;
-                return acc;
-            }, {});
-
-            return Object.entries(groups)
-                .sort((a, b) => getRegexRuleSourceMeta(a[0]).order - getRegexRuleSourceMeta(b[0]).order)
-                .map(([source, count]) => `${getRegexRuleSourceMeta(source).label} ${count} 条`)
-                .join(' · ');
+            return summarizeRegexRuleSources(this.regexDraftDisplayRules, 'chat');
         },
 
         get regexDraftDisplayRules() {
-            const sourceRules = Array.isArray(this.regexConfigDraft?.displayRules) ? this.regexConfigDraft.displayRules : [];
-            return sourceRules
-                .map((rule, index) => {
-                    const normalized = normalizeDisplayRule(rule, index);
-                    const source = normalized.source || 'draft';
-                    const meta = getRegexRuleSourceMeta(source);
-                    return {
-                        ...normalized,
-                        source,
-                        sourceLabel: meta.label,
-                        sourceTone: meta.tone,
-                        sourceOrder: meta.order,
-                    };
-                })
-                .sort((a, b) => {
-                    if (a.sourceOrder !== b.sourceOrder) {
-                        return a.sourceOrder - b.sourceOrder;
-                    }
-                    return a.scriptName.localeCompare(b.scriptName, 'zh-CN');
-                });
+            return decorateRegexDisplayRules(this.regexConfigDraft, 'chat');
         },
 
         get regexSourceChain() {
-            return [
-                {
-                    id: 'builtin',
-                    title: '内置模板',
-                    state: '始终可用',
-                    detail: '作为最后兜底，不写入聊天文件，也不依赖浏览器缓存。',
-                    tone: 'muted',
-                },
-                {
-                    id: 'local',
-                    title: '本地默认',
-                    state: '浏览器本地',
-                    detail: '通过“保存本地默认”写入 localStorage，只在当前浏览器生效。',
-                    tone: 'info',
-                },
-                {
-                    id: 'card',
-                    title: '角色卡规则',
-                    state: this.hasBoundCardRegexConfig ? '已检测到' : (this.activeChat?.bound_card_id ? '未检测到' : '未绑定角色卡'),
-                    detail: this.activeChat?.bound_card_id
-                        ? '读取绑定角色卡 `extensions.regex_scripts` / ST 预设 RegexBinding，并覆盖同名解析位。'
-                        : '当前聊天没有绑定角色卡，因此不会读取角色卡正则。',
-                    tone: this.hasBoundCardRegexConfig ? 'success' : 'muted',
-                },
-                {
-                    id: 'chat',
-                    title: '聊天专属',
-                    state: this.hasChatRegexConfig ? '当前生效' : '未保存',
-                    detail: '“保存聊天规则”会写入当前聊天 JSONL 的 metadata.reader_regex_config，优先级最高。',
-                    tone: this.hasChatRegexConfig ? 'accent' : 'muted',
-                },
-            ];
+            return this.regexStateCards;
         },
 
         get readerVisibleSummary() {
@@ -2892,7 +3083,7 @@ export default function chatGrid() {
                 },
             });
 
-            this.regexConfigDraft = loadStoredRegexConfig();
+            this.regexConfigDraft = normalizeRegexConfig(EMPTY_CHAT_READER_REGEX_CONFIG, { fillDefaults: false });
             this.readerViewSettings = loadStoredViewSettings();
             const renderPreferences = loadStoredRenderPreferences();
             this.readerRenderMode = renderPreferences.renderMode;
@@ -3176,7 +3367,7 @@ export default function chatGrid() {
                 await this.setReaderWindowAroundFloor(this.effectiveReaderAnchorFloor || 1, 'center');
                 if (requestToken !== this.readerPageRequestToken) return;
                 this.detectChatAppMode();
-                this.regexConfigDraft = normalizeRegexConfig(this.activeRegexConfig);
+                this.regexConfigDraft = this.getChatOwnedRegexConfig(this.activeChat);
                 this.regexConfigSourceLabel = this.describeRegexConfigSource(this.activeChat);
                 this.$nextTick(() => {
                     this.mountChatAppStage();
@@ -4102,13 +4293,13 @@ export default function chatGrid() {
             this.detailDraftNotes = this.activeChat.notes || '';
             this.readerViewportFloor = Math.min(Math.max(1, preserveViewportFloor), Math.max(1, this.readerTotalMessages || 1));
             this.readerAnchorFloor = Math.min(Math.max(1, preserveAnchorFloor), Math.max(1, this.readerTotalMessages || 1));
-            this.readerResolvedRegexConfig = normalizeRegexConfig(this.activeRegexConfig);
             await this.loadBoundCardRegexConfig(this.activeChat);
             if (requestToken !== this.readerPageRequestToken) return;
+            this.readerResolvedRegexConfig = normalizeRegexConfig(this.activeRegexConfig);
             await this.setReaderWindowAroundFloor(this.effectiveReaderAnchorFloor || this.readerViewportFloor || 1, 'center');
             if (requestToken !== this.readerPageRequestToken) return;
             this.detectChatAppMode();
-            this.regexConfigDraft = normalizeRegexConfig(this.activeRegexConfig);
+            this.regexConfigDraft = this.getChatOwnedRegexConfig(this.activeChat);
             this.regexConfigSourceLabel = this.describeRegexConfigSource(this.activeChat);
             this.$nextTick(() => {
                 this.mountChatAppStage();
@@ -4118,10 +4309,13 @@ export default function chatGrid() {
 
         describeRegexConfigSource(chat = null) {
             const target = chat || this.activeChat;
-            if (target?.metadata?.reader_regex_config) return '当前聊天专属规则';
-            if (target?.bound_card_id && hasCustomRegexConfig(this.activeCardRegexConfig)) return '已绑定角色卡规则';
-            if (target?.bound_card_id) return '已绑定角色卡，未检测到正则配置';
-            return '本地默认规则';
+            if (this.savedChatRegexRuleCount > 0 && target?.bound_card_id && hasCustomRegexConfig(this.activeCardRegexConfig)) {
+                return '当前生效：角色卡继承 + 聊天自定义';
+            }
+            if (this.savedChatRegexRuleCount > 0) return '当前生效：聊天自定义规则';
+            if (target?.bound_card_id && hasCustomRegexConfig(this.activeCardRegexConfig)) return '当前生效：角色卡继承规则';
+            if (target?.bound_card_id) return '已绑定角色卡，但当前没有可用解析规则';
+            return '当前没有可用解析规则';
         },
 
         async loadBoundCardRegexConfig(chat = null) {
@@ -4135,7 +4329,7 @@ export default function chatGrid() {
             }
 
             try {
-                const detail = await getCardDetail(target.bound_card_id, { preview_wi: false });
+                const detail = await getCardDetail(target.bound_card_id, { regex_only: true });
                 if (!detail?.success) {
                     this.activeCardRegexConfig = normalizeRegexConfig(EMPTY_CHAT_READER_REGEX_CONFIG, { fillDefaults: false });
                     if (target && typeof target === 'object') {
@@ -4536,17 +4730,15 @@ export default function chatGrid() {
                 ...this.regexConfigDraft,
                 [field]: value,
             };
-            this.readerResolvedRegexConfig = normalizeRegexConfig(this.regexConfigDraft);
         },
 
         addRegexDisplayRule() {
             const next = Array.isArray(this.regexConfigDraft.displayRules) ? [...this.regexConfigDraft.displayRules] : [];
-            next.push(normalizeDisplayRule({ expanded: true, source: 'draft' }, next.length));
+            next.push(normalizeDisplayRule({ expanded: true, source: 'manual' }, next.length));
             this.regexConfigDraft = {
                 ...this.regexConfigDraft,
                 displayRules: next,
             };
-            this.readerResolvedRegexConfig = normalizeRegexConfig(this.regexConfigDraft);
         },
 
         updateRegexDisplayRule(index, field, value) {
@@ -4554,18 +4746,17 @@ export default function chatGrid() {
             const target = orderedRules[index];
             if (!target) return;
 
-            const targetKey = buildDisplayRuleKey(target);
+            const targetId = target.id;
             const next = Array.isArray(this.regexConfigDraft.displayRules)
                 ? this.regexConfigDraft.displayRules.map((item) => {
-                    const currentKey = buildDisplayRuleKey(item);
-                    return currentKey === targetKey ? { ...item, [field]: value } : item;
+                    const currentId = normalizeDisplayRule(item).id;
+                    return currentId === targetId ? { ...item, [field]: value } : item;
                 })
                 : [];
             this.regexConfigDraft = {
                 ...this.regexConfigDraft,
                 displayRules: next,
             };
-            this.readerResolvedRegexConfig = normalizeRegexConfig(this.regexConfigDraft);
         },
 
         updateRegexDisplayRuleDepthMode(index, value) {
@@ -4582,18 +4773,17 @@ export default function chatGrid() {
             const target = orderedRules[index];
             if (!target) return;
 
-            const targetKey = buildDisplayRuleKey(target);
+            const targetId = target.id;
             const next = Array.isArray(this.regexConfigDraft.displayRules)
                 ? this.regexConfigDraft.displayRules.map((item) => {
-                    const currentKey = buildDisplayRuleKey(item);
-                    return currentKey === targetKey ? { ...item, expanded: !item.expanded } : item;
+                    const currentId = normalizeDisplayRule(item).id;
+                    return currentId === targetId ? { ...item, expanded: !item.expanded } : item;
                 })
                 : [];
             this.regexConfigDraft = {
                 ...this.regexConfigDraft,
                 displayRules: next,
             };
-            this.readerResolvedRegexConfig = normalizeRegexConfig(this.regexConfigDraft);
         },
 
         removeRegexDisplayRule(index) {
@@ -4601,15 +4791,14 @@ export default function chatGrid() {
             const target = orderedRules[index];
             if (!target) return;
 
-            const targetKey = buildDisplayRuleKey(target);
+            const targetId = target.id;
             const next = Array.isArray(this.regexConfigDraft.displayRules)
-                ? this.regexConfigDraft.displayRules.filter((item) => buildDisplayRuleKey(item) !== targetKey)
+                ? this.regexConfigDraft.displayRules.filter((item) => normalizeDisplayRule(item).id !== targetId)
                 : [];
             this.regexConfigDraft = {
                 ...this.regexConfigDraft,
                 displayRules: next,
             };
-            this.readerResolvedRegexConfig = normalizeRegexConfig(this.regexConfigDraft);
         },
 
         importRegexConfigFile(event) {
@@ -4626,10 +4815,14 @@ export default function chatGrid() {
                         return;
                     }
 
-                    this.regexConfigDraft = convertRulesToReaderConfig(rules, this.regexConfigDraft, { fillDefaults: true, source: 'draft' });
-                    this.readerResolvedRegexConfig = normalizeRegexConfig(this.regexConfigDraft);
-                    this.regexConfigStatus = `已导入 ${rules.length} 条规则`;
-                    this.previewRegexConfig();
+                    const importSource = detectImportedRegexSource(data);
+                    const importMeta = getRegexRuleSourceMeta(importSource);
+                    this.regexConfigDraft = convertRulesToReaderConfig(rules, this.regexConfigDraft, {
+                        fillDefaults: false,
+                        source: importSource,
+                        mode: 'merge',
+                    });
+                    this.regexConfigStatus = `已从${importMeta.label}导入 ${rules.length} 条规则，保存后会并入当前聊天`;
                 } catch (err) {
                     alert(`导入规则失败: ${err.message || err}`);
                 } finally {
@@ -4639,50 +4832,13 @@ export default function chatGrid() {
             reader.readAsText(file, 'utf-8');
         },
 
-        restoreRegexConfigFromChat() {
-            if (!this.activeChat) return;
-
-            const chatConfig = this.activeChat?.metadata?.reader_regex_config;
-            if (!chatConfig) {
-                this.regexConfigStatus = '当前聊天还没有保存专属规则';
-                return;
-            }
-
-            this.regexConfigDraft = markRegexConfigRuleSource(chatConfig, 'chat');
-            this.readerResolvedRegexConfig = normalizeRegexConfig(this.regexConfigDraft);
-            this.regexConfigSourceLabel = '当前聊天专属规则';
-            this.regexConfigStatus = '已从当前聊天恢复规则';
-            this.previewRegexConfig();
-        },
-
-        restoreRegexConfigFromBoundCard() {
-            if (!this.activeChat?.bound_card_id) {
-                this.regexConfigStatus = '当前聊天未绑定角色卡';
-                return;
-            }
-
-            if (!hasCustomRegexConfig(this.activeCardRegexConfig)) {
-                this.regexConfigStatus = '绑定角色卡中未找到可用的正则配置';
-                return;
-            }
-
-            this.regexConfigDraft = markRegexConfigRuleSource(this.activeCardRegexConfig, 'card');
-            this.readerResolvedRegexConfig = normalizeRegexConfig(this.regexConfigDraft);
-            this.regexConfigSourceLabel = '已绑定角色卡规则';
-            this.regexConfigStatus = '已从绑定角色卡恢复规则';
-            this.previewRegexConfig();
-        },
-
-        restoreRegexConfigFromLocalDefault() {
-            this.regexConfigDraft = markRegexConfigRuleSource(loadStoredRegexConfig(), 'local');
-            this.readerResolvedRegexConfig = normalizeRegexConfig(this.regexConfigDraft);
-            this.regexConfigSourceLabel = '本地默认规则';
-            this.regexConfigStatus = '已恢复本地默认规则';
-            this.previewRegexConfig();
+        clearRegexDraft() {
+            this.regexConfigDraft = normalizeRegexConfig(EMPTY_CHAT_READER_REGEX_CONFIG, { fillDefaults: false });
+            this.regexConfigStatus = '已清空聊天自定义规则，保存后将恢复为角色卡继承';
         },
 
         exportRegexConfigDraft() {
-            const payload = normalizeRegexConfig(this.regexConfigDraft);
+            const payload = normalizeRegexConfig(this.regexConfigDraft, { fillDefaults: false });
             const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
             const url = URL.createObjectURL(blob);
             const link = document.createElement('a');
@@ -4690,121 +4846,96 @@ export default function chatGrid() {
             link.download = `chat-reader-regex-${Date.now()}.json`;
             link.click();
             URL.revokeObjectURL(url);
-            this.regexConfigStatus = '已导出当前规则';
-        },
-
-        resetRegexConfigDraft() {
-            this.regexConfigDraft = markRegexConfigRuleSource(DEFAULT_CHAT_READER_REGEX_CONFIG, 'builtin');
-            this.readerResolvedRegexConfig = normalizeRegexConfig(this.regexConfigDraft);
-            this.regexConfigSourceLabel = '内置默认模板';
-            this.regexConfigStatus = '已恢复默认解析规则';
+            this.regexConfigStatus = '已导出当前聊天自定义规则';
         },
 
         openRegexConfig() {
             this.readerResolvedRegexConfig = normalizeRegexConfig(this.activeRegexConfig);
-            this.regexConfigDraft = markRegexConfigRuleSource(this.activeRegexConfig, 'draft');
-            this.regexTestInput = this.getReaderRawMessageForFloor(this.effectiveReaderAnchorFloor || 1)?.mes
-                || this.getReaderMessageForFloor(this.effectiveReaderAnchorFloor || 1)?.preview_text
-                || this.activeChat?.message_index?.[0]?.preview
-                || '';
+            this.regexConfigDraft = this.getChatOwnedRegexConfig(this.activeChat);
+            this.regexTestInput = '';
             this.regexConfigOpen = true;
             this.regexConfigTab = 'extract';
             this.regexConfigSourceLabel = this.describeRegexConfigSource();
-            this.regexConfigStatus = '';
+            this.regexConfigStatus = '测试区默认不自动加载内容，按需手动载入当前定位楼层即可。';
         },
 
         closeRegexConfig() {
-            this.readerResolvedRegexConfig = normalizeRegexConfig(this.activeRegexConfig);
-            this.rebuildActiveChatMessages(this.activeRegexConfig);
-            if (this.detailSearchQuery) {
-                this.searchInDetail();
-            }
             this.regexConfigOpen = false;
             this.regexConfigStatus = '';
+            this.regexConfigDraft = this.getChatOwnedRegexConfig(this.activeChat);
             this.regexConfigSourceLabel = this.describeRegexConfigSource();
         },
 
-        previewRegexConfig() {
-            this.readerResolvedRegexConfig = normalizeRegexConfig(this.regexConfigDraft);
-            this.rebuildActiveChatMessages(this.regexConfigDraft);
-            this.regexConfigStatus = '已预览当前规则';
-            this.regexConfigSourceLabel = '当前预览草稿';
-            if (this.detailSearchQuery) {
-                this.searchInDetail();
+        async loadRegexTestInputFromCurrentFloor() {
+            if (!this.activeChat) return;
+
+            const floor = Number(this.effectiveReaderAnchorFloor || this.readerViewportFloor || 0);
+            if (!floor) {
+                this.regexConfigStatus = '当前没有可加载的定位楼层。';
+                return;
             }
+
+            await this.ensureReaderWindowForFloor(floor, 'center');
+            const rawMessage = this.getReaderRawMessageForFloor(floor);
+            const parsedMessage = this.getReaderMessageForFloor(floor);
+            const indexMessage = Array.isArray(this.activeChat?.message_index) ? this.activeChat.message_index[floor - 1] : null;
+            const nextText = rawMessage?.mes
+                || parsedMessage?.mes
+                || parsedMessage?.content
+                || parsedMessage?.preview_text
+                || indexMessage?.preview
+                || '';
+
+            if (!String(nextText || '').trim()) {
+                this.regexConfigStatus = `楼层 #${floor} 没有可用于测试的文本。`;
+                return;
+            }
+
+            this.regexTestInput = String(nextText);
+            this.regexConfigStatus = `已加载当前定位楼层 #${floor} 的内容到测试区。`;
+        },
+
+        clearRegexTestInput() {
+            this.regexTestInput = '';
+            this.regexConfigStatus = '已清空测试区。';
         },
 
         async saveRegexConfig() {
             if (!this.activeChat) return;
 
-            const nextConfig = normalizeRegexConfig(this.regexConfigDraft);
-            this.readerResolvedRegexConfig = nextConfig;
+            const nextConfig = normalizeRegexConfig(this.regexConfigDraft, { fillDefaults: false });
             const metadata = {
                 ...ensureChatMetadataShape(this.activeChat.metadata),
-                reader_regex_config: nextConfig,
             };
+            if (hasCustomRegexConfig(nextConfig)) {
+                metadata.reader_regex_config = nextConfig;
+            } else {
+                delete metadata.reader_regex_config;
+            }
             const rawMessages = await this.fetchCompleteRawMessages();
             if (!Array.isArray(rawMessages)) return;
 
             const ok = await this.persistChatContent(
                 rawMessages,
-                '聊天解析规则已保存',
+                hasCustomRegexConfig(nextConfig) ? '聊天解析规则已保存' : '已恢复为角色卡继承规则',
                 metadata,
                 { rebuild: false },
             );
             if (!ok) return;
 
-            this.regexConfigDraft = nextConfig;
-            this.rebuildActiveChatMessages(nextConfig);
+            this.readerResolvedRegexConfig = normalizeRegexConfig(this.activeRegexConfig);
+            this.regexConfigDraft = this.getChatOwnedRegexConfig(this.activeChat);
+            this.rebuildActiveChatMessages(this.activeRegexConfig);
             this.regexConfigOpen = false;
             this.regexConfigStatus = '';
-            this.regexConfigSourceLabel = '当前聊天专属规则';
-            if (this.detailSearchQuery) {
-                this.searchInDetail();
-            }
-        },
-
-        saveRegexConfigAsLocalDefault() {
-            const nextConfig = normalizeRegexConfig(this.regexConfigDraft);
-            storeRegexConfig(nextConfig);
-            this.regexConfigStatus = '已保存为本地默认规则';
-            this.regexConfigSourceLabel = '本地默认规则';
-            this.readerResolvedRegexConfig = normalizeRegexConfig(this.activeRegexConfig);
-            this.rebuildActiveChatMessages(this.activeRegexConfig);
-            if (this.detailSearchQuery) {
-                this.searchInDetail();
-            }
-        },
-
-        async clearRegexConfigFromChat() {
-            if (!this.activeChat) return;
-
-            if (!this.hasChatRegexConfig) {
-                this.regexConfigStatus = '当前聊天没有专属规则';
-                return;
-            }
-
-            const metadata = { ...ensureChatMetadataShape(this.activeChat.metadata) };
-            delete metadata.reader_regex_config;
-            const rawMessages = await this.fetchCompleteRawMessages();
-            if (!Array.isArray(rawMessages)) return;
-
-            const ok = await this.persistChatContent(
-                rawMessages,
-                '已清除当前聊天专属规则',
-                metadata,
-                { rebuild: false },
-            );
-            if (!ok) return;
-
-            this.readerResolvedRegexConfig = normalizeRegexConfig(this.activeRegexConfig);
-            this.regexConfigDraft = normalizeRegexConfig(this.activeRegexConfig);
             this.regexConfigSourceLabel = this.describeRegexConfigSource();
-            this.regexConfigStatus = '当前聊天已恢复继承角色卡 / 本地默认规则';
-            this.rebuildActiveChatMessages(this.activeRegexConfig);
             if (this.detailSearchQuery) {
                 this.searchInDetail();
             }
+        },
+
+        clearRegexConfigFromChat() {
+            this.clearRegexDraft();
         },
 
         renderReaderContent(text) {
@@ -5704,7 +5835,7 @@ export default function chatGrid() {
 
             const preserveName = this.detailDraftName;
             const preserveNotes = this.detailDraftNotes;
-            const preserveRegexConfigDraft = normalizeRegexConfig(this.regexConfigDraft);
+            const preserveRegexConfigDraft = normalizeRegexConfig(this.regexConfigDraft, { fillDefaults: false });
             const preserveReaderResolvedRegexConfig = normalizeRegexConfig(this.readerResolvedRegexConfig || this.activeRegexConfig);
             const preserveAnchorMode = this.readerAnchorMode;
             const preserveAnchorSource = this.readerAnchorSource;
