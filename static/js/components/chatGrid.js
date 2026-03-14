@@ -65,7 +65,6 @@ const CHAT_READER_WINDOW_OVERLAP = 24;
 const CHAT_READER_WINDOW_STEP = Math.max(1, CHAT_READER_WINDOW_SIZE - CHAT_READER_WINDOW_OVERLAP);
 const READER_VIEWPORT_SYNC_IDLE_MS = 120;
 const READER_VIEWPORT_TOP_PROBE_OFFSET = 72;
-const READER_SCROLL_DEBUG_BUFFER_LIMIT = 600;
 
 const READER_ANCHOR_MODES = {
     FOLLOW_VIEWPORT: 'follow_viewport',
@@ -994,19 +993,22 @@ function resolveReaderRenderBandRanges(
     const resolvedAnchorFloor = Math.min(resolvedTotal, Math.max(1, Number(anchorFloor || resolvedTotal || 1)));
     const renderNearby = Math.max(1, Number(settings.renderNearbyCount ?? DEFAULT_CHAT_READER_VIEW_SETTINGS.renderNearbyCount));
     const simpleRenderRadius = Math.max(0, Number(settings.simpleRenderRadius ?? DEFAULT_CHAT_READER_VIEW_SETTINGS.simpleRenderRadius));
-    const followViewportBias = normalizeReaderAnchorMode(anchorMode) === READER_ANCHOR_MODES.FOLLOW_VIEWPORT
-        && String(anchorSource || '') === READER_ANCHOR_SOURCES.SCROLL;
-    const fullBackwardRadius = followViewportBias ? Math.min(1, renderNearby) : renderNearby;
-    const simpleBackwardRadius = followViewportBias ? Math.min(2, simpleRenderRadius) : simpleRenderRadius;
 
     return {
         renderNearby,
         simpleRenderRadius,
-        expansionStartFloor: Math.max(1, resolvedAnchorFloor - fullBackwardRadius),
+        expansionStartFloor: Math.max(1, resolvedAnchorFloor - renderNearby),
         expansionEndFloor: Math.min(resolvedTotal, resolvedAnchorFloor + renderNearby),
-        simpleStartFloor: Math.max(1, resolvedAnchorFloor - simpleBackwardRadius),
+        simpleStartFloor: Math.max(1, resolvedAnchorFloor - simpleRenderRadius),
         simpleEndFloor: Math.min(resolvedTotal, resolvedAnchorFloor + simpleRenderRadius),
     };
+}
+
+
+function resolveReaderFollowViewportCommitDeadZone(viewSettings = null) {
+    const settings = viewSettings && typeof viewSettings === 'object' ? viewSettings : DEFAULT_CHAT_READER_VIEW_SETTINGS;
+    const renderNearby = Math.max(1, Number(settings.renderNearbyCount ?? DEFAULT_CHAT_READER_VIEW_SETTINGS.renderNearbyCount));
+    return Math.max(2, Math.ceil(renderNearby / 2));
 }
 
 
@@ -1032,7 +1034,10 @@ function getRuntimeScanCandidateFloors(activeChat, viewSettings = null, anchorFl
     const total = messages.length;
     const settings = viewSettings && typeof viewSettings === 'object' ? viewSettings : DEFAULT_CHAT_READER_VIEW_SETTINGS;
     const resolvedAnchorFloor = Math.min(total, Math.max(1, Number(anchorFloor || activeChat?.last_view_floor || total || 1)));
-    const tailKeepaliveCount = resolveReaderTailKeepaliveCount(settings, total, resolvedAnchorFloor, anchorMode);
+    const rawTailKeepaliveCount = resolveReaderTailKeepaliveCount(settings, total, resolvedAnchorFloor, anchorMode);
+    const tailKeepaliveCount = normalizeReaderAnchorMode(anchorMode) === READER_ANCHOR_MODES.FOLLOW_VIEWPORT
+        ? 0
+        : rawTailKeepaliveCount;
     const nearRadius = Math.max(
         Number(settings.renderNearbyCount ?? DEFAULT_CHAT_READER_VIEW_SETTINGS.renderNearbyCount),
         Number(settings.simpleRenderRadius ?? DEFAULT_CHAT_READER_VIEW_SETTINGS.simpleRenderRadius),
@@ -1819,9 +1824,6 @@ export default function chatGrid() {
         readerScrollRaf: 0,
         readerScrollIdleTimer: 0,
         readerScrollCompensationRaf: 0,
-        readerScrollDebugEnabled: true,
-        readerScrollDebugSeq: 0,
-        readerScrollDebugLastScrollTop: 0,
 
         bindPickerOpen: false,
         bindPickerLoading: false,
@@ -1864,17 +1866,17 @@ export default function chatGrid() {
             if (this.readerAnchorMode === READER_ANCHOR_MODES.TAIL_COMPATIBLE) {
                 return total;
             }
+            const committedFloor = Number(this.readerAnchorFloor || 0);
+            if (committedFloor > 0) {
+                return Math.min(total, Math.max(1, committedFloor));
+            }
             const fallback = Number(
                 this.readerViewportFloor
-                || this.readerAnchorFloor
                 || this.activeChat?.last_view_floor
                 || total
-                || 1,
+                || 1
             );
-            if (this.readerAnchorMode === READER_ANCHOR_MODES.FOLLOW_VIEWPORT) {
-                return Math.min(total, Math.max(1, fallback));
-            }
-            return Math.min(total, Math.max(1, Number(this.readerAnchorFloor || fallback || 1)));
+            return Math.min(total, Math.max(1, fallback));
         },
 
         get readerAnchorStatusText() {
@@ -1928,7 +1930,7 @@ export default function chatGrid() {
             const rawHiddenHistoryThreshold = Number(this.readerViewSettings.hiddenHistoryThreshold ?? DEFAULT_CHAT_READER_VIEW_SETTINGS.hiddenHistoryThreshold);
             const isFollowViewportMode = this.readerAnchorMode === READER_ANCHOR_MODES.FOLLOW_VIEWPORT;
             const tailKeepaliveCount = isFollowViewportMode ? 0 : rawTailKeepaliveCount;
-            const simpleRenderRadius = isFollowViewportMode ? 0 : rawSimpleRenderRadius;
+            const simpleRenderRadius = rawSimpleRenderRadius;
             const hiddenHistoryThreshold = isFollowViewportMode ? 0 : rawHiddenHistoryThreshold;
             const compactPreviewLength = Number(this.readerViewSettings.compactPreviewLength ?? DEFAULT_CHAT_READER_VIEW_SETTINGS.compactPreviewLength);
             const tailKeepaliveStartFloor = tailKeepaliveCount > 0 ? Math.max(1, total - tailKeepaliveCount + 1) : total + 1;
@@ -1988,10 +1990,10 @@ export default function chatGrid() {
                 let renderTier = 'hidden';
                 if (isTailKeepaliveFloor || inFullBand) {
                     renderTier = 'full';
-                } else if (isFollowViewportMode) {
-                    renderTier = 'compact';
                 } else if (inSimpleBand) {
                     renderTier = 'simple';
+                } else if (isFollowViewportMode) {
+                    renderTier = 'compact';
                 } else if (!shouldHideHistory) {
                     renderTier = 'compact';
                 }
@@ -2467,12 +2469,15 @@ export default function chatGrid() {
                 resolvedAnchorFloor,
                 total,
             });
-            const tailKeepaliveCount = resolveReaderTailKeepaliveCount(
+            const rawTailKeepaliveCount = resolveReaderTailKeepaliveCount(
                 this.readerViewSettings,
                 total,
                 resolvedAnchorFloor,
                 this.readerAnchorMode,
             );
+            const tailKeepaliveCount = this.readerAnchorMode === READER_ANCHOR_MODES.FOLLOW_VIEWPORT
+                ? 0
+                : rawTailKeepaliveCount;
             const renderBands = resolveReaderRenderBandRanges(
                 this.readerViewSettings,
                 total,
@@ -3281,113 +3286,21 @@ export default function chatGrid() {
         },
 
         isReaderScrollDebugEnabled() {
-            if (typeof window !== 'undefined' && window.__STM_READER_SCROLL_DEBUG__ === false) {
-                return false;
-            }
-            return this.readerScrollDebugEnabled !== false;
+            return false;
         },
 
         resetReaderScrollDebugLog(label = '') {
-            this.readerScrollDebugSeq = 0;
-            this.readerScrollDebugLastScrollTop = 0;
-            if (typeof window !== 'undefined') {
-                window.__STM_READER_SCROLL_DEBUG__ = this.readerScrollDebugEnabled !== false;
-                window.__STM_READER_SCROLL_LOG__ = [];
-                window.__STM_READER_SCROLL_LAST__ = null;
-                window.__STM_DUMP_READER_SCROLL_LOG__ = () => JSON.stringify(window.__STM_READER_SCROLL_LOG__ || [], null, 2);
-                window.__STM_READER_LAYOUT_LOG__ = [];
-                window.__STM_READER_LAYOUT_LAST__ = null;
-                window.__STM_DUMP_READER_LAYOUT_LOG__ = () => JSON.stringify(window.__STM_READER_LAYOUT_LOG__ || [], null, 2);
-                if (!Number.isFinite(Number(window.__STM_READER_LAYOUT_TARGET_FLOOR__))) {
-                    window.__STM_READER_LAYOUT_TARGET_FLOOR__ = 0;
-                }
-                window.__STM_SET_READER_LAYOUT_TARGET_FLOOR__ = (floor) => {
-                    const nextFloor = Number(floor || 0);
-                    window.__STM_READER_LAYOUT_TARGET_FLOOR__ = Number.isFinite(nextFloor) ? nextFloor : 0;
-                    return window.__STM_READER_LAYOUT_TARGET_FLOOR__;
-                };
-                window.__STM_DEBUG_READER_FLOOR_LAYOUT__ = (floor, reason = 'manual') => {
-                    this.debugReaderFloorLayoutByFloor(Number(floor || 0), String(reason || 'manual'));
-                    return Number(floor || 0);
-                };
-            }
-            this.logReaderScrollDebug('session_reset', { label: String(label || '') });
+            void label;
         },
 
         logReaderScrollDebug(event, payload = {}) {
-            if (!this.isReaderScrollDebugEnabled()) return;
-
-            const container = this.getReaderScrollContainer();
-            const entry = {
-                seq: Number(this.readerScrollDebugSeq || 0) + 1,
-                event: String(event || ''),
-                at: new Date().toISOString(),
-                chatId: String(this.activeChat?.id || ''),
-                scrollTop: container instanceof Element ? Number(container.scrollTop || 0) : null,
-                viewportFloor: Number(this.readerViewportFloor || 0),
-                anchorFloor: Number(this.readerAnchorFloor || 0),
-                effectiveAnchorFloor: Number(this.effectiveReaderAnchorFloor || 0),
-                anchorMode: String(this.readerAnchorMode || ''),
-                anchorSource: String(this.readerAnchorSource || ''),
-                lastViewFloor: Number(this.activeChat?.last_view_floor || 0),
-                windowStartFloor: Number(this.readerWindowStartFloor || 0),
-                windowEndFloor: Number(this.readerWindowEndFloor || 0),
-                loadedPageStart: Number(this.readerLoadedPageStart || 0),
-                loadedPageEnd: Number(this.readerLoadedPageEnd || 0),
-                ...payload,
-            };
-
-            this.readerScrollDebugSeq = entry.seq;
-
-            if (typeof window !== 'undefined') {
-                const log = Array.isArray(window.__STM_READER_SCROLL_LOG__) ? window.__STM_READER_SCROLL_LOG__ : [];
-                log.push(entry);
-                if (log.length > READER_SCROLL_DEBUG_BUFFER_LIMIT) {
-                    log.splice(0, log.length - READER_SCROLL_DEBUG_BUFFER_LIMIT);
-                }
-                window.__STM_READER_SCROLL_LOG__ = log;
-                window.__STM_READER_SCROLL_LAST__ = entry;
-            }
-
-            console.debug('[ReaderScrollDebug]', entry);
+            void event;
+            void payload;
         },
 
         logReaderLayoutDebug(event, payload = {}) {
-            if (!this.isReaderScrollDebugEnabled()) return;
-
-            const container = this.getReaderScrollContainer();
-            const entry = {
-                seq: Number(this.readerScrollDebugSeq || 0) + 1,
-                event: String(event || ''),
-                at: new Date().toISOString(),
-                chatId: String(this.activeChat?.id || ''),
-                scrollTop: container instanceof Element ? Number(container.scrollTop || 0) : null,
-                viewportFloor: Number(this.readerViewportFloor || 0),
-                anchorFloor: Number(this.readerAnchorFloor || 0),
-                effectiveAnchorFloor: Number(this.effectiveReaderAnchorFloor || 0),
-                anchorMode: String(this.readerAnchorMode || ''),
-                anchorSource: String(this.readerAnchorSource || ''),
-                lastViewFloor: Number(this.activeChat?.last_view_floor || 0),
-                windowStartFloor: Number(this.readerWindowStartFloor || 0),
-                windowEndFloor: Number(this.readerWindowEndFloor || 0),
-                loadedPageStart: Number(this.readerLoadedPageStart || 0),
-                loadedPageEnd: Number(this.readerLoadedPageEnd || 0),
-                ...payload,
-            };
-
-            this.readerScrollDebugSeq = entry.seq;
-
-            if (typeof window !== 'undefined') {
-                const layoutLog = Array.isArray(window.__STM_READER_LAYOUT_LOG__) ? window.__STM_READER_LAYOUT_LOG__ : [];
-                layoutLog.push(entry);
-                if (layoutLog.length > READER_SCROLL_DEBUG_BUFFER_LIMIT) {
-                    layoutLog.splice(0, layoutLog.length - READER_SCROLL_DEBUG_BUFFER_LIMIT);
-                }
-                window.__STM_READER_LAYOUT_LOG__ = layoutLog;
-                window.__STM_READER_LAYOUT_LAST__ = entry;
-            }
-
-            console.debug('[ReaderLayoutDebug]', entry);
+            void event;
+            void payload;
         },
 
         describeReaderLayoutNode(node, originTop = 0) {
@@ -3495,90 +3408,22 @@ export default function chatGrid() {
         },
 
         shouldTraceReaderFloorLayout(floor, snapshot = null) {
-            const targetFloor = typeof window !== 'undefined'
-                ? Number(window.__STM_READER_LAYOUT_TARGET_FLOOR__ || 0)
-                : 0;
-
-            if (targetFloor > 0 && floor === targetFloor) {
-                return true;
-            }
-
-            if (floor === Number(this.readerViewportFloor || 0)) {
-                return true;
-            }
-
-            if (Number(snapshot?.blankTailHeight || 0) >= 120) {
-                return true;
-            }
-
-            return Array.isArray(snapshot?.runtimeWrappers)
-                && snapshot.runtimeWrappers.some((item) => Number(item?.hostHeight || 0) > 0 || Number(item?.iframeHeight || 0) > 0);
+            void floor;
+            void snapshot;
+            return false;
         },
 
         scheduleReaderFloorLayoutDebug(message, el, reason = 'generic', extra = {}) {
-            if (!(el instanceof Element) || !message || !this.detailOpen || !this.activeChat) return;
-
-            const floor = Number(message.floor || 0);
-            if (!floor) return;
-
-            const runCapture = (phase) => {
-                window.requestAnimationFrame(() => {
-                    if (!(el instanceof Element) || !el.isConnected || !this.detailOpen || !this.activeChat) return;
-                    if (resolveReaderMessageChatId(message, this.activeChat) !== String(this.activeChat?.id || '')) return;
-
-                    const snapshot = this.captureReaderFloorLayoutSnapshot(message, el);
-                    if (!snapshot || !this.shouldTraceReaderFloorLayout(floor, snapshot)) {
-                        return;
-                    }
-
-                    const dedupeKey = JSON.stringify({
-                        reason: String(reason || ''),
-                        phase: String(phase || ''),
-                        floor,
-                        cardHeight: Number(snapshot.cardHeight || 0),
-                        contentHeight: Number(snapshot.contentHeight || 0),
-                        blankTailHeight: Number(snapshot.blankTailHeight || 0),
-                        runtimeWrapperCount: Number(snapshot.runtimeWrapperCount || 0),
-                        runtimeHeights: Array.isArray(snapshot.runtimeWrappers)
-                            ? snapshot.runtimeWrappers.map((item) => [
-                                Number(item.hostHeight || 0),
-                                Number(item.iframeHeight || 0),
-                                Number(item.sourceHeight || 0),
-                            ])
-                            : [],
-                    });
-                    if (el.__stmReaderLayoutDebugKey === dedupeKey) {
-                        return;
-                    }
-                    el.__stmReaderLayoutDebugKey = dedupeKey;
-
-                    this.logReaderLayoutDebug('reader_floor_layout', {
-                        reason: String(reason || ''),
-                        phase: String(phase || ''),
-                        ...extra,
-                        ...snapshot,
-                    });
-                });
-            };
-
-            runCapture('raf');
-            window.setTimeout(() => runCapture('settled_240ms'), 240);
-            window.setTimeout(() => runCapture('settled_1000ms'), 1000);
+            void message;
+            void el;
+            void reason;
+            void extra;
         },
 
         debugReaderFloorLayoutByFloor(floor, reason = 'manual', extra = {}) {
-            const targetFloor = Number(floor || 0);
-            if (!targetFloor) return;
-
-            const root = document.querySelector('.chat-reader-overlay--fullscreen');
-            const card = root ? root.querySelector(`[data-chat-floor="${targetFloor}"]`) : null;
-            if (!(card instanceof Element)) return;
-
-            const content = card.querySelector('.chat-message-content');
-            const message = this.getReaderMessageForFloor(targetFloor);
-            if (!(content instanceof Element) || !message) return;
-
-            this.scheduleReaderFloorLayoutDebug(message, content, reason, extra);
+            void floor;
+            void reason;
+            void extra;
         },
 
         resolveReaderViewportProbe(container, mode = 'top') {
@@ -4080,52 +3925,51 @@ export default function chatGrid() {
                 const shouldForce = options.force !== false;
                 const floorDelta = currentFloor ? Math.abs(nextFloor - currentFloor) : Number.POSITIVE_INFINITY;
                 const viewportChanged = nextFloor !== currentFloor;
-                this.logReaderScrollDebug('sync_viewport_run', {
-                    nextFloor,
-                    currentFloor,
-                    shouldForce,
-                    floorDelta,
-                    viewportChanged,
-                });
 
                 if (viewportChanged) {
                     this.readerViewportFloor = nextFloor;
-                    this.$nextTick(() => {
-                        this.debugReaderFloorLayoutByFloor(nextFloor, 'viewport_floor_changed', {
-                            previousFloor: currentFloor,
-                            shouldForce,
-                        });
-                    });
                 }
 
                 if (viewportChanged && (shouldForce || floorDelta >= Math.max(1, renderNearby))) {
                     void this.ensureReaderWindowForFloor(nextFloor, 'center');
                 }
 
-                if (!shouldForce && currentFloor && floorDelta < Math.max(1, renderNearby)) {
+                if (!shouldForce) {
                     return;
                 }
 
-                const shouldSyncFollowViewportAnchor = this.readerAnchorMode === READER_ANCHOR_MODES.FOLLOW_VIEWPORT
-                    && (
-                        Number(this.readerAnchorFloor || 0) !== nextFloor
-                        || this.readerAnchorSource !== READER_ANCHOR_SOURCES.SCROLL
-                    );
+                if (this.readerAnchorMode !== READER_ANCHOR_MODES.FOLLOW_VIEWPORT) {
+                    return;
+                }
 
-                if (shouldForce && shouldSyncFollowViewportAnchor) {
+                const currentAnchorFloor = Number(this.readerAnchorFloor || 0);
+                const deadZone = resolveReaderFollowViewportCommitDeadZone(this.readerViewSettings);
+                const anchorDelta = currentAnchorFloor ? Math.abs(nextFloor - currentAnchorFloor) : Number.POSITIVE_INFINITY;
+                if (currentAnchorFloor && anchorDelta < deadZone) {
+                    return;
+                }
+
+                const requestToken = this.readerPageRequestToken;
+                const activeChatId = String(this.activeChat?.id || '');
+                void (async () => {
+                    await this.ensureReaderWindowForFloor(nextFloor, 'center');
+                    if (!this.detailOpen || this.readerAppMode) return;
+                    if (requestToken !== this.readerPageRequestToken) return;
+                    if (String(this.activeChat?.id || '') !== activeChatId) return;
+                    if (Number(this.readerViewportFloor || 0) !== nextFloor) return;
+
+                    const latestAnchorFloor = Number(this.readerAnchorFloor || 0);
+                    if (latestAnchorFloor && Math.abs(nextFloor - latestAnchorFloor) < deadZone) {
+                        return;
+                    }
+
                     this.updateReaderAnchorFloor(nextFloor, READER_ANCHOR_SOURCES.SCROLL, {
                         force: true,
-                        preserveScroll: false,
+                        preserveScroll: true,
                         viewport: false,
                         window: false,
                     });
-                }
-                this.logReaderScrollDebug('sync_viewport_done', {
-                    nextFloor,
-                    currentFloor,
-                    shouldForce,
-                    viewportChanged,
-                });
+                })();
             };
 
             if (options.nextTick === false) {
@@ -4138,10 +3982,6 @@ export default function chatGrid() {
 
         scheduleReaderViewportSync() {
             if (!this.detailOpen || this.readerAppMode) return;
-            this.logReaderScrollDebug('schedule_viewport_sync', {
-                hasRaf: this.readerScrollRaf > 0,
-                hasIdleTimer: this.readerScrollIdleTimer > 0,
-            });
 
             if (!this.readerScrollRaf) {
                 this.readerScrollRaf = window.requestAnimationFrame(() => {
@@ -4161,14 +4001,6 @@ export default function chatGrid() {
         },
 
         handleReaderScroll() {
-            const container = this.getReaderScrollContainer();
-            const scrollTop = container instanceof Element ? Number(container.scrollTop || 0) : 0;
-            if (Math.abs(scrollTop - Number(this.readerScrollDebugLastScrollTop || 0)) >= 4) {
-                this.readerScrollDebugLastScrollTop = scrollTop;
-                this.logReaderScrollDebug('handle_reader_scroll', {
-                    scrollTop,
-                });
-            }
             this.scheduleReaderViewportSync();
         },
 
@@ -4602,12 +4434,15 @@ export default function chatGrid() {
                 || total
                 || 1,
             );
-            const tailKeepaliveCount = resolveReaderTailKeepaliveCount(
+            const rawTailKeepaliveCount = resolveReaderTailKeepaliveCount(
                 this.readerViewSettings,
                 total,
                 anchorFloor,
                 this.readerAnchorMode,
             );
+            const tailKeepaliveCount = this.readerAnchorMode === READER_ANCHOR_MODES.FOLLOW_VIEWPORT
+                ? 0
+                : rawTailKeepaliveCount;
             const cacheKey = buildReaderDisplaySourceCacheKey(nextConfig, anchorFloor, this.readerAnchorMode);
             const legacyReaderDepthMode = resolveReaderLegacyDepthMode(this.readerAnchorMode);
             this.logReaderScrollDebug('rebuild_active_chat_messages_start', {
