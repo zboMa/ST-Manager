@@ -88,7 +88,6 @@
                 <div class="chat-reader-panel" x-show="activeChat">
                     <div class="chat-reader-panel-title">阅读锚点</div>
                     <div class="chat-inline-actions">
-                        <button class="chat-toolbar-btn" :class="readerAnchorMode === 'follow_viewport' ? 'chat-toolbar-btn--primary' : ''" @click="setReaderAnchorMode('follow_viewport')">跟随视口</button>
                         <button class="chat-toolbar-btn" :class="readerAnchorMode === 'locked_floor' ? 'chat-toolbar-btn--primary' : ''" @click="setReaderAnchorMode('locked_floor')">锁定当前</button>
                         <button class="chat-toolbar-btn" :class="readerAnchorMode === 'tail_compatible' ? 'chat-toolbar-btn--primary' : ''" @click="setReaderAnchorMode('tail_compatible')">末楼兼容</button>
                     </div>

@@ -1,181 +1,217 @@
 # AGENTS.md
 
-## Build & Development Commands
+## Project Snapshot
 
-### Starting the Application
-```bash
-# Standard run (production mode)
-python app.py
+- Stack: Python 3.10+, Flask, SQLite, Pillow, requests, watchdog
+- Entry point: `app.py`
+- App factory: `core/__init__.py:create_app`
+- Background startup: `core/__init__.py:init_services`
+- Main code areas: `core/api/v1/`, `core/services/`, `core/data/`, `core/utils/`, `tests/`
 
-# Debug mode with hot reload
-python app.py --debug
-# or
-FLASK_DEBUG=1 python app.py
-```
+## Rules Files Present
 
-### Install Dependencies
+- Existing agent guide found at repo root: `AGENTS.md`
+- No `.cursorrules` file found
+- No `.cursor/rules/` directory found
+- No `.github/copilot-instructions.md` file found
+
+If any of those files are added later, treat them as additional constraints.
+
+## Environment And Setup
+
+- Recommended Python: 3.10+
+- Install runtime dependencies:
+
 ```bash
 pip install -r requirements.txt
 ```
 
-### Testing
-This project currently has no automated test suite. Tests should be added following these guidelines:
-- Create `test_*.py` files in a new `tests/` directory
-- Use pytest as the test framework
-- Run all tests: `pytest tests/`
-- Run single test: `pytest tests/test_module.py::test_function_name`
+- Test tooling is not listed in `requirements.txt`; install it when needed:
 
-### Linting & Type Checking
-No linting tools are currently configured. Recommended setup:
 ```bash
-# Install linting tools
-pip install black flake8 mypy pylint
-
-# Format code
-black .
-
-# Check style
-flake8 .
-
-# Type checking
-mypy core/
+pip install pytest
 ```
 
-## Code Style Guidelines
+- Optional local dev tools:
 
-### File Organization & Imports
-- **Standard library imports first**: `import os`, `import sys`, `import json`
-- **Third-party imports second**: `from flask import Blueprint`, `import requests`
-- **Local imports last**: `from core.config import CARDS_FOLDER`
-- Group imports with blank lines between sections
-- Use absolute imports for core modules: `from core.config import ...`
-- Avoid circular imports - keep dependencies shallow
-
-### Naming Conventions
-- **Classes**: `PascalCase` - `GlobalMetadataCache`, `AutomationEngine`
-- **Functions/Methods**: `snake_case` - `extract_card_info`, `load_config`
-- **Variables**: `snake_case` - `card_id`, `file_path`
-- **Constants**: `UPPER_CASE` - `CARDS_FOLDER`, `SIDECAR_EXTENSIONS`
-- **Private methods**: `_leading_underscore` - `_init_state()`, `_update_category_count()`
-- **Blueprints**: Lowercase, descriptive - `bp = Blueprint('cards', __name__)`
-
-### Formatting Standards
-- **Indentation**: 4 spaces (no tabs)
-- **Line length**: Target 100-120 characters max
-- **Blank lines**: 2 between top-level functions, 1 between class methods
-- **Trailing whitespace**: Remove all trailing whitespace
-- **String quotes**: Single quotes for string literals, double quotes for JSON output
-
-### Type Hints
-- Type hints are **not** currently enforced but recommended for new code
-- Use Python 3.6+ type hint syntax: `def load_config() -> dict:`
-- For complex types, import from `typing`: `from typing import List, Dict, Optional`
-
-### Docstrings
-- Use triple-double quotes for docstrings
-- Describe function purpose, parameters, and return values
-- Keep it concise and Chinese-friendly for user-facing strings
-
-```python
-def extract_card_info(filepath):
-    """
-    解析卡片文件元数据。
-    支持 PNG (tEXt chunk) 和 JSON 格式。
-    返回标准化的卡片字典，失败返回 None。
-    """
+```bash
+pip install black flake8 mypy
 ```
 
-### Error Handling
-- Always use try-except for file I/O operations
-- Log errors using `logger.error()` from logging module
-- Use `logger.warning()` for non-critical issues
-- Return `None` or `False` on expected failures, not empty exceptions
-- Never expose stack traces to user-facing endpoints
+## Run Commands
 
-```python
-try:
-    data = json.load(f)
-except Exception as e:
-    logger.error(f"Failed to parse {filepath}: {e}")
-    return None
+- Start the app normally:
+
+```bash
+python app.py
 ```
 
-### Threading & Concurrency
-- Use `threading.Lock()` for shared state protection
-- Always use `with lock:` context manager for critical sections
-- Background threads should be daemons: `threading.Thread(..., daemon=True)`
-- Use `ctx.scan_queue` for inter-thread communication
-- Use `queue.Queue()` for thread-safe message passing
+- Start in debug mode with Flask reloader:
 
-### Database Operations
-- Use `sqlite3` directly for queries
-- Always use parameterized queries to prevent SQL injection
-- Use `execute_with_retry()` for retryable operations
-- Close connections properly with context managers
-
-```python
-with sqlite3.connect(db_path, timeout=60) as conn:
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM table WHERE id = ?", (id,))
+```bash
+python app.py --debug
 ```
 
-### Flask/Blueprint Patterns
-- Use Flask Blueprints for API routing
-- Return JSON with `jsonify()` for API responses
-- Use standard HTTP status codes: 200, 400, 404, 500
-- Structure: `@bp.route('/api/endpoint', methods=['GET', 'POST'])`
+- Equivalent debug env form:
 
-### File Paths
-- Always use `os.path.join()` for cross-platform compatibility
-- Use `os.path.dirname()` and `os.path.basename()` for path manipulation
-- Normalize paths with `.replace('\\', '/')` when storing in database
-- Check path existence before operations with `os.path.exists()`
-
-### JSON Handling
-- Use `ensure_ascii=False` when dumping JSON to support Chinese characters
-- Use `indent=4` for human-readable JSON files
-- Use `separators=(',', ':')` for compact JSON output
-- Always handle JSON parse errors
-
-```python
-json.dump(data, f, ensure_ascii=False, indent=4, separators=(',', ': '))
+```bash
+FLASK_DEBUG=1 python app.py
 ```
 
-### Logging
-- Get logger per module: `logger = logging.getLogger(__name__)`
-- Use appropriate levels: `logger.debug()`, `logger.info()`, `logger.warning()`, `logger.error()`
-- Log meaningful context, not just "Error occurred"
-- Print user-facing messages with `print()` for CLI visibility
+- Docker build/run paths also exist:
 
-### Code Patterns
-- **Singleton pattern** for global context: `AppContext` class in `core/context.py`
-- **Factory pattern** for Flask app: `create_app()` function
-- **Service layer** in `core/services/` for business logic
-- **Utility layer** in `core/utils/` for reusable functions
-- **API layer** in `core/api/v1/` for Flask routes
+```bash
+docker-compose up -d
+docker-compose up --build
+```
 
-### Bundle/Version Management
-- Cards in folders with `.bundle` marker are treated as multi-version bundles
-- Bundle cards aggregate all versions and display latest as primary
-- Use `bundle_dir` field to track bundle association
-- Handle version conflicts by checking modification times
+## Test Commands
 
-### Configuration
-- Load from `config.json` in project root
-- Use `DEFAULT_CONFIG` for default values
-- Support both absolute and relative paths
-- Reload config on changes via `load_config()`
+Pytest tests exist in `tests/`; do not assume the repo is untested.
 
-### Comments & Documentation
-- Use Chinese comments for user-facing strings and messages
-- Use English for technical comments and variable names
-- Explain complex logic briefly inline
-- No need for excessive commenting of obvious code
+- Run the full suite:
 
-### Anti-Patterns to Avoid
-- Don't use global variables (use `ctx` singleton instead)
-- Don't catch all exceptions with bare `except:` - specify exception types
-- Don't use mutable default arguments: `def func(items=[]):` → `def func(items=None):`
-- Don't hardcode paths - use config constants from `core.config`
-- Don't commit secrets or sensitive data to repository
-- Don't use `print()` for logging in production code
+```bash
+pytest tests/
+```
+
+- Run a single test file:
+
+```bash
+pytest tests/test_st_auth_flow.py
+```
+
+- Run one specific test function:
+
+```bash
+pytest tests/test_st_auth_flow.py::test_st_http_client_web_performs_login
+```
+
+- Run a single test with verbose output:
+
+```bash
+pytest -v tests/test_chat_list_filters.py::test_chat_list_fav_filter_included
+```
+
+## Lint And Type Check
+
+No repo-enforced linter, formatter, or type checker config files were found, so keep edits minimal.
+
+- Safe optional formatting target:
+
+```bash
+black app.py core tests
+```
+
+- Safe optional lint target:
+
+```bash
+flake8 app.py core tests
+```
+
+- Safe optional type-check target:
+
+```bash
+mypy core
+```
+
+## Architecture Conventions
+
+- Use `create_app()` as the Flask app factory
+- Register HTTP endpoints as Blueprints under `core/api/v1/`
+- Keep business logic in `core/services/`, not inside route handlers
+- Keep reusable pure helpers in `core/utils/`
+- Use `core/context.py` singleton `ctx` for shared runtime state
+- Use `core/data/db_session.py` for SQLite connection patterns and retry helpers
+- Background workers should be daemon threads
+- File-system-triggered rescans should go through scan/cache services, not ad hoc logic
+
+## Build And Packaging
+
+- Container build file: `Dockerfile`
+- Compose file: `docker-compose.yaml`
+- Docker image runs `python app.py` and exposes port `5000`
+- Data/config are expected to be mounted into `/app/data` and `/app/config.json`
+
+## Imports
+
+- Order imports: standard library, third-party, local modules
+- Separate import groups with one blank line
+- Prefer absolute imports from `core`, for example `from core.config import load_config`
+- Avoid circular imports; if necessary, use narrow local imports inside functions
+- Do not leave unused imports behind
+
+## Naming
+
+- Classes: `PascalCase`
+- Functions and methods: `snake_case`
+- Local variables: `snake_case`
+- Constants: `UPPER_CASE`
+- Private helpers: leading underscore, such as `_resolve_safe_path`
+- Blueprint objects are typically named `bp`
+
+## Formatting
+
+- Use 4 spaces, never tabs
+- Prefer lines under roughly 100-120 characters
+- Keep top-level functions separated by two blank lines
+- Keep method definitions separated by one blank line when helpful
+- Prefer single quotes in Python code unless double quotes improve readability or are required
+- Do not reformat unrelated files just to match a formatter
+
+## Types And Signatures
+
+- Type hints are optional but welcome for new or heavily edited functions
+- Add return types to service/helper functions when it improves clarity
+- Use `typing` imports for complex structures if needed
+- Do not add noisy annotations to trivial locals
+
+## Docstrings And Comments
+
+- Use concise triple-double-quoted docstrings for non-trivial public functions
+- Keep user-facing text and many explanatory comments Chinese-friendly, matching the repo
+- Keep technical identifiers and module names in English
+- Add comments only where behavior is non-obvious; avoid narrating obvious code
+
+## Error Handling And Logging
+
+- Wrap file I/O, JSON parsing, network access, and subprocess calls in `try/except`
+- Prefer specific exceptions when practical; avoid bare `except:`
+- Log through `logger = logging.getLogger(__name__)`
+- Use `logger.warning()` for recoverable issues and `logger.error()` for failures
+- Return structured JSON errors from API routes via `jsonify()`
+- Do not expose stack traces in API responses
+- CLI/startup flows may still print clear status messages for the local user
+
+## Database And State
+
+- SQLite is used directly via `sqlite3`
+- Use parameterized queries, never string-built SQL
+- Reuse `execute_with_retry()` for lock-prone writes
+- Use `with sqlite3.connect(...)` or the Flask `g` connection pattern
+- Preserve WAL-related setup already used in `core/data/db_session.py`
+- For shared mutable state, use locks/queues from `ctx`
+
+## Paths, Files, And Data
+
+- Build paths with `os.path.join()`
+- Normalize stored relative paths with forward slashes using `.replace('\\', '/')`
+- Check that paths stay inside allowed roots before reading/writing
+- Respect dynamic config-driven folders from `core.config`
+- Use `ensure_ascii=False` when writing JSON that may contain Chinese text
+- Avoid destructive file operations unless the task explicitly requires them
+
+## Testing Expectations For Changes
+
+- Prefer adding or updating pytest tests in `tests/` for behavior changes
+- Keep test filenames as `test_*.py`
+- For Flask endpoints, small app fixtures using `Flask(__name__)` and blueprint registration are acceptable and already used in the repo
+- When changing auth, config normalization, chat filters, parsers, or filesystem safety logic, run the most targeted relevant test file first
+
+## Agent Editing Guidance
+
+- Make focused changes that match surrounding style
+- Preserve Chinese user-facing strings unless the task is explicitly to rewrite them
+- Do not replace existing architectural patterns with new frameworks or abstractions without a strong reason
+- Do not silently add new tooling configs unless requested
+- If you introduce a new command or workflow, update this file when it becomes repo-standard
