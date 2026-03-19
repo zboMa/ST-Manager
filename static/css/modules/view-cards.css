@@ -1377,6 +1377,10 @@ html.light-mode .btn-note-preview:hover {
 }
 
 @media (max-width: 768px) {
+    .card-scroll-area {
+        padding: 0.8rem;
+    }
+
     .card-pagination-bar {
         display: grid;
         grid-template-columns: 1fr;
@@ -1406,6 +1410,7 @@ html.light-mode .btn-note-preview:hover {
     }
 
     .card-grid {
+        gap: 0.8rem;
         grid-template-columns: repeat(auto-fill, minmax(150px, 1fr))
     }
 

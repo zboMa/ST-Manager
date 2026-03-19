@@ -2293,10 +2293,39 @@ html.light-mode .chat-toolbar-btn--danger:hover {
         grid-template-columns: 1fr
     }
 
+    .chat-grid-toolbar-copy {
+        padding: 0.8rem 1rem;
+    }
+
+    .chat-grid-title {
+        font-size: 1.2rem;
+    }
+    .chat-grid-desc {
+        font-size: 0.8rem;
+    }
+
+    .chat-card {
+        gap: 0.4rem;
+    }
+
+    .chat-card-favorite {
+        width: 30px;
+        height: 30px;
+    }
+
+    .chat-toolbar-btn, .chat-reader-toggle {
+        padding: 0.4rem 0.6rem;
+        font-size: 0.7rem;
+    }
+
     .chat-reader-header {
         min-height: 0;
-        padding: 0.85rem;
+        padding: 0.65rem;
         flex-direction: column
+    }
+
+    .chat-reader-title {
+        font-size: 0.7rem;
     }
 
     .chat-reader-editor-grid {
@@ -2363,16 +2392,23 @@ html.light-mode .chat-toolbar-btn--danger:hover {
         grid-column: 1
     }
 
+    .chat-grid-toolbar-actions {
+        border-radius: 12px;
+        padding: 0.4rem 0.6rem;
+    }
     .chat-grid-toolbar-actions,
     .chat-reader-header,
     .chat-reader-header-main {
-        align-items: flex-start
+        align-items: flex-start;
     }
 
-    .chat-reader-header-stats,
-    .chat-reader-mini-stat,
-    .chat-reader-signal-pill {
-        width: 100%
+    .chat-reader-mini-stat {
+        flex-direction: row;
+    }
+    
+    .chat-card-body,
+    .chat-reader-header-actions {
+        gap: 0.4rem;
     }
 
     .chat-reader-header-main,
@@ -2387,6 +2423,45 @@ html.light-mode .chat-toolbar-btn--danger:hover {
     .chat-inline-actions,
     .chat-bind-actions {
         width: 100%;
-        flex-direction: column
+        flex-direction: row;
+    }
+
+    .chat-card-stat-label,
+    .chat-card-stat-value,
+    .chat-card-date-label,
+    .chat-card-date-value,
+    .chat-card-seq-label,
+    .chat-card-seq strong,
+    .detail-chat-floor strong {
+        display: inline;
+        font-size: 0.7rem;
+    }
+
+    .chat-card-stat,
+    .chat-card-seq,
+    .chat-card-date-box,
+    .chat-pill,
+    .chat-reader-toggle,
+    .chat-reader-mini-stat {
+        padding: 0.2rem 0.4rem;
+        border-radius: 6px;
+    }
+
+    .chat-card-action,
+    .chat-toolbar-btn,
+    .chat-floor-chip {
+        padding: 0.4rem 0.6rem;
+        font-size: 0.7rem;
+    }
+
+    .chat-card-preview,
+    .chat-message-content,
+    .chat-message-meta strong,
+    .chat-pill {
+        font-size: 0.7rem;
+    }
+
+    .chat-pill {
+        min-height: 30px;
     }
 }
