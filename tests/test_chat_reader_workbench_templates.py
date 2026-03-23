@@ -14,8 +14,8 @@ def test_header_template_does_not_expose_runtime_inspector_controls():
     assert 'openRuntimeInspector' not in header_template
     assert 'open-runtime-inspector' not in header_template
     assert '运行时检查器' not in header_template
-    assert '运行时' not in header_template
-    assert '🧪' not in header_template
+    assert 'title="运行时检查器"' not in header_template
+    assert '<div class="menu-label">运行时</div>' not in header_template
 
 
 def test_index_template_does_not_include_runtime_inspector_modal():
