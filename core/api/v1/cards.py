@@ -3381,7 +3381,13 @@ def api_delete_folder():
         # 1. 抑制文件系统事件 (因为涉及大量移动)
         suppress_fs_events(6.0)
         
-        folder_path = request.json.get('folder_path')
+        data = request.get_json(silent=True) or {}
+        folder_path = data.get('folder_path')
+        delete_children = bool(
+            data.get('delete_children', False) or
+            data.get('delete_subfiles', False) or
+            data.get('delete_subfolders', False)
+        )
         if not folder_path or folder_path == "根目录":
             return jsonify({"success": False, "msg": "根目录不可删除"})
         if not _is_safe_rel_path(folder_path):
@@ -3393,7 +3399,75 @@ def api_delete_folder():
 
         if not os.path.exists(target_dir):
              return jsonify({"success": False, "msg": "文件夹不存在"})
-        
+
+        # === 可选：递归删除子内容（递归删除时不做“文件夹解散”）===
+        if delete_children:
+            # 先做物理删除，避免 DB/UI 已删除但磁盘未成功的状态
+            try:
+                items = os.listdir(target_dir)
+            except OSError as e:
+                return jsonify({"success": False, "msg": f"无法读取目录: {e}"})
+
+            dir_is_empty = len(items) == 0
+            try:
+                if dir_is_empty:
+                    os.rmdir(target_dir)
+                else:
+                    moved_to_trash = safe_move_to_trash(target_dir, TRASH_FOLDER)
+                    if not moved_to_trash:
+                        shutil.rmtree(target_dir)
+            except Exception as e:
+                logger.error(f"Delete folder(delete_children) physical remove failed: {e}")
+                return jsonify({"success": False, "msg": f"删除失败: {e}"})
+
+            # 2) 数据库清理：删除该目录下所有卡片元数据
+            conn = get_db()
+            cursor = conn.cursor()
+            escaped_old_prefix = folder_path.replace('_', r'\_').replace('%', r'\%')
+            cursor.execute(
+                "SELECT COUNT(*) FROM card_metadata WHERE id = ? OR id LIKE ? || '/%' ESCAPE '\\'",
+                (folder_path, escaped_old_prefix),
+            )
+            deleted_cards = cursor.fetchone()[0]
+
+            cursor.execute(
+                "DELETE FROM card_metadata WHERE id = ? OR id LIKE ? || '/%' ESCAPE '\\'",
+                (folder_path, escaped_old_prefix),
+            )
+            conn.commit()
+
+            # 3) UI 数据清理
+            ui_data = load_ui_data()
+            prefix = folder_path + '/'
+            keys_to_remove = [k for k in ui_data.keys() if k == folder_path or k.startswith(prefix)]
+            if keys_to_remove:
+                for k in keys_to_remove:
+                    del ui_data[k]
+                save_ui_data(ui_data)
+
+            # 4) 内存增量（可见文件夹列表）
+            with ctx.cache.lock:
+                desc_prefix = folder_path + '/'
+                ctx.cache.visible_folders = [
+                    f for f in ctx.cache.visible_folders
+                    if f != folder_path and not f.startswith(desc_prefix)
+                ]
+
+            # 5) 触发刷新（这里必须强制同步重载：前端会立即请求 list_cards 读取 ctx.cache）
+            force_reload(reason="delete_folder:delete_children")
+
+            if dir_is_empty:
+                msg = f"文件夹已删除。{deleted_cards} 个项目在索引中已移除。"
+            else:
+                msg = f"文件夹及其子内容已删除并移动到回收站（可恢复）。{deleted_cards} 个项目已移除。"
+
+            return jsonify({
+                "success": True,
+                "deleted_children": True,
+                "deleted_count": deleted_cards,
+                "msg": msg,
+            })
+
         ui_data = load_ui_data()
         ui_changed = False
         conn = get_db()

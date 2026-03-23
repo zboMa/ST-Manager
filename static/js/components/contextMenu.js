@@ -17,6 +17,14 @@ export default function contextMenu() {
         target: null, // path
         type: null,   // 'folder' | 'card'
         targetFolder: null, // 文件夹对象引用
+        // 删除文件夹确认弹窗状态（包含“是否删除子文件”可选项）
+        deleteFolderConfirm: {
+            visible: false,
+            path: '',
+            cardCount: 0,
+            hasSubfolders: false,
+            deleteChildren: false
+        },
 
         // 设备类型辅助：用于区分移动端样式
         get isMobile() {
@@ -54,6 +62,8 @@ export default function contextMenu() {
 
             // 点击外部自动关闭
             window.addEventListener('click', () => {
+                // 弹窗打开时不要被全局 click 立刻关闭，确保可切换复选框并点确认
+                if (this.deleteFolderConfirm && this.deleteFolderConfirm.visible) return;
                 this.visible = false;
             });
         },
@@ -180,31 +190,42 @@ export default function contextMenu() {
 
                 // 3. 判断是否需要确认
                 // 如果既有卡片又有子文件夹，或者其中之一存在，则需要确认 (因为涉及移动文件)
-                // 只有完全为空时，才跳过确认
-                const isEmpty = (cardCount === 0 && !hasSubfolders);
-
-                if (!isEmpty) {
-                    const msg = `确定删除文件夹 "${path}" 吗？\n\n该文件夹包含 ${cardCount} 张卡片` +
-                        (hasSubfolders ? " 和子文件夹" : "") +
-                        "。\n\n删除后，内部文件将**移动到上一级目录** (文件夹解散)。";
-
-                    if (!confirm(msg)) return;
-                }
-
-                // 执行删除
-                deleteFolder({ folder_path: path }).then(res => {
-                    if (res.success) {
-                        // 刷新文件夹树和卡片列表
-                        window.dispatchEvent(new CustomEvent('refresh-folder-list'));
-                        // 即使是空文件夹，删除后也建议刷新列表，确保同步
-                        window.dispatchEvent(new CustomEvent('refresh-card-list'));
-                    } else {
-                        alert(res.msg);
-                    }
-                });
-
-                this.visible = false;
+                // 默认不勾选递归删除子内容（保持原“文件夹解散”行为）
+                // 打开自定义确认弹窗：默认不勾选递归删除子内容（保持原“文件夹解散”行为）
+                this.deleteFolderConfirm = {
+                    visible: true,
+                    path: path,
+                    cardCount: cardCount,
+                    hasSubfolders: hasSubfolders,
+                    deleteChildren: false
+                };
             }
+        },
+        
+        cancelDeleteFolder() {
+            this.deleteFolderConfirm.visible = false;
+            this.visible = false;
+        },
+
+        confirmDeleteFolder() {
+            const path = this.deleteFolderConfirm.path;
+            const deleteChildren = !!this.deleteFolderConfirm.deleteChildren;
+
+            // 关闭弹窗
+            this.deleteFolderConfirm.visible = false;
+            this.visible = false;
+
+            // 执行删除
+            deleteFolder({ folder_path: path, delete_children: deleteChildren }).then(res => {
+                if (res.success) {
+                    // 刷新文件夹树和卡片列表
+                    window.dispatchEvent(new CustomEvent('refresh-folder-list'));
+                    // 即使是空文件夹，删除后也建议刷新列表，确保同步
+                    window.dispatchEvent(new CustomEvent('refresh-card-list'));
+                } else {
+                    alert(res.msg);
+                }
+            });
         },
 
         // 聚合模式

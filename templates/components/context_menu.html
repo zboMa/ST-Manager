@@ -97,4 +97,36 @@
             </template>
         </div>
     </div>
+
+    <!-- 删除文件夹确认弹窗 -->
+    <div x-show="deleteFolderConfirm.visible" x-cloak class="modal-overlay z-modal-popover"
+        @click.self="cancelDeleteFolder()">
+        <div
+            style="background: var(--bg-panel); padding: 1.5rem; border-radius: 0.75rem; width: 24rem; border: 1px solid var(--border-light); box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5);">
+            <h3 style="font-weight: bold; color: var(--text-main); margin-bottom: 1rem;">删除文件夹</h3>
+
+            <div style="color: var(--text-dim); font-size: 0.875rem; margin-bottom: 0.75rem;">
+                正在删除：<span class="font-mono" x-text="deleteFolderConfirm.path"></span>
+                <div style="margin-top: 0.25rem;">
+                    该文件夹包含 <span x-text="deleteFolderConfirm.cardCount"></span> 张卡片
+                    <span x-show="deleteFolderConfirm.hasSubfolders">并包含子文件夹</span>。
+                </div>
+            </div>
+
+            <div style="color: var(--text-dim); font-size: 0.875rem; margin-bottom: 1rem;">
+                未勾选：文件夹解散，内容将移动到上一级目录。<br />
+                已勾选：递归删除内容，并移动到回收站（可恢复；空目录将直接删除）。
+            </div>
+
+            <label class="flex items-start gap-2 cursor-pointer select-none" style="margin-bottom: 1rem;">
+                <input type="checkbox" x-model="deleteFolderConfirm.deleteChildren" class="cursor-pointer mt-1">
+                <span style="color: var(--text-main); font-size: 0.875rem;">删除子文件/子文件夹（递归删除）</span>
+            </label>
+
+            <div style="display: flex; gap: 0.5rem;">
+                <button @click="cancelDeleteFolder()" class="btn-secondary" style="flex: 1; border-radius: 0.5rem;">取消</button>
+                <button @click="confirmDeleteFolder()" class="btn-primary" style="flex: 1; border-radius: 0.5rem;">确定</button>
+            </div>
+        </div>
+    </div>
 </div>
