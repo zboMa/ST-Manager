@@ -8,6 +8,13 @@ def read_project_file(relative_path):
     return (PROJECT_ROOT / relative_path).read_text(encoding='utf-8')
 
 
+def extract_css_block(css_source, selector):
+    selector_start = css_source.index(selector)
+    block_start = css_source.index('{', selector_start)
+    block_end = css_source.index('}', block_start)
+    return css_source[block_start + 1:block_end]
+
+
 def test_header_template_does_not_expose_runtime_inspector_controls():
     header_template = read_project_file('templates/components/header.html')
 
@@ -48,6 +55,8 @@ def test_advanced_editor_no_longer_listens_for_runtime_inspector_bridge_events()
 
 def test_chat_reader_css_defines_workbench_theme_tokens():
     chat_reader_css = read_project_file('static/css/modules/view-chats.css')
+    reader_overlay_block = extract_css_block(chat_reader_css, '.chat-reader-overlay')
+    light_mode_overlay_block = extract_css_block(chat_reader_css, 'html.light-mode .chat-reader-overlay')
 
     required_tokens = [
         '--chat-reader-accent-soft',
@@ -55,8 +64,29 @@ def test_chat_reader_css_defines_workbench_theme_tokens():
         '--chat-reader-accent-border',
         '--chat-reader-accent-text',
         '--chat-reader-surface-raised',
+        '--chat-reader-surface-selected',
         '--chat-reader-danger-soft',
+        '--chat-reader-focus-ring',
+    ]
+
+    derived_token_prefixes = [
+        '--chat-reader-accent-soft:',
+        '--chat-reader-accent-strong:',
+        '--chat-reader-accent-border:',
+        '--chat-reader-accent-text:',
+        '--chat-reader-surface-raised:',
+        '--chat-reader-surface-selected:',
+        '--chat-reader-focus-ring:',
     ]
 
     for token in required_tokens:
         assert token in chat_reader_css
+        assert token in reader_overlay_block
+        assert token in light_mode_overlay_block
+
+    for block in (reader_overlay_block, light_mode_overlay_block):
+        for line in block.splitlines():
+            stripped_line = line.strip()
+
+            if any(stripped_line.startswith(prefix) for prefix in derived_token_prefixes):
+                assert '#' not in stripped_line

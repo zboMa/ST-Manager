@@ -424,13 +424,13 @@
     z-index: var(--z-chat-reader);
     --chat-reader-header-height: 76px;
     --chat-reader-accent-soft: color-mix(in srgb, var(--accent-main), transparent 88%);
-    --chat-reader-accent-strong: linear-gradient(135deg, color-mix(in srgb, var(--accent-main), #22c55e 35%), #1f7a4e);
-    --chat-reader-accent-border: color-mix(in srgb, var(--accent-main), rgba(255, 255, 255, 0.14) 42%);
-    --chat-reader-accent-text: color-mix(in srgb, var(--accent-main), white 12%);
-    --chat-reader-surface-raised: color-mix(in srgb, var(--bg-panel), rgba(255, 255, 255, 0.04) 16%);
+    --chat-reader-accent-strong: linear-gradient(135deg, var(--accent-main), color-mix(in srgb, var(--accent-main), var(--bg-hover) 32%));
+    --chat-reader-accent-border: color-mix(in srgb, var(--accent-main), var(--border-light) 42%);
+    --chat-reader-accent-text: color-mix(in srgb, var(--accent-main), var(--text-main) 18%);
+    --chat-reader-surface-raised: color-mix(in srgb, var(--bg-panel), var(--bg-hover) 16%);
     --chat-reader-surface-selected: color-mix(in srgb, var(--accent-main), var(--bg-panel) 84%);
-    --chat-reader-danger-soft: color-mix(in srgb, #ef4444, transparent 88%);
-    --chat-reader-focus-ring: color-mix(in srgb, var(--accent-main), rgba(255, 255, 255, 0.24) 42%);
+    --chat-reader-danger-soft: color-mix(in srgb, var(--danger), transparent 88%);
+    --chat-reader-focus-ring: color-mix(in srgb, var(--accent-main), var(--border-light) 42%);
     --chat-reader-code-bg: linear-gradient(180deg, rgba(15, 23, 42, 0.96), rgba(17, 24, 39, 0.98));
     --chat-reader-code-border: rgba(96, 165, 250, 0.24);
     --chat-reader-code-shadow: 0 18px 38px rgba(2, 6, 23, 0.34);
@@ -2123,14 +2123,14 @@
 }
 
 html.light-mode .chat-reader-overlay {
-    --chat-reader-accent-soft: color-mix(in srgb, var(--accent-main), white 90%);
-    --chat-reader-accent-strong: linear-gradient(135deg, color-mix(in srgb, var(--accent-main), white 8%), color-mix(in srgb, var(--accent-main), #dbeafe 26%));
-    --chat-reader-accent-border: color-mix(in srgb, var(--accent-main), rgba(148, 163, 184, 0.2) 52%);
-    --chat-reader-accent-text: color-mix(in srgb, var(--accent-main), #0f172a 28%);
-    --chat-reader-surface-raised: color-mix(in srgb, var(--bg-panel), white 38%);
-    --chat-reader-surface-selected: color-mix(in srgb, var(--accent-main), white 92%);
-    --chat-reader-danger-soft: color-mix(in srgb, #ef4444, white 90%);
-    --chat-reader-focus-ring: color-mix(in srgb, var(--accent-main), rgba(255, 255, 255, 0.4) 38%);
+    --chat-reader-accent-soft: color-mix(in srgb, var(--accent-main), var(--bg-panel) 90%);
+    --chat-reader-accent-strong: linear-gradient(135deg, color-mix(in srgb, var(--accent-main), var(--bg-panel) 8%), color-mix(in srgb, var(--accent-main), var(--bg-hover) 26%));
+    --chat-reader-accent-border: color-mix(in srgb, var(--accent-main), var(--border-light) 52%);
+    --chat-reader-accent-text: color-mix(in srgb, var(--accent-main), var(--text-main) 28%);
+    --chat-reader-surface-raised: color-mix(in srgb, var(--bg-panel), var(--bg-hover) 38%);
+    --chat-reader-surface-selected: color-mix(in srgb, var(--accent-main), var(--bg-panel) 92%);
+    --chat-reader-danger-soft: color-mix(in srgb, var(--danger), var(--bg-panel) 90%);
+    --chat-reader-focus-ring: color-mix(in srgb, var(--accent-main), var(--border-light) 38%);
     --chat-reader-code-bg: linear-gradient(180deg, rgba(248, 250, 252, 0.98), rgba(239, 246, 255, 0.98));
     --chat-reader-code-border: rgba(59, 130, 246, 0.18);
     --chat-reader-code-shadow: 0 16px 30px rgba(148, 163, 184, 0.18);
