@@ -36,6 +36,46 @@ export default function extensionGrid() {
                 this.currentMode = this.$store.global.currentMode;
                 this.fetchItems();
             }
+
+            // 提供给移动端/外部（如 Sidebar 导入按钮）复用的全局上传入口
+            window.stUploadRegexFiles = (files) => { this._uploadExtensionsFiles(files, 'regex'); };
+            window.stUploadScriptFiles = (files) => { this._uploadExtensionsFiles(files, 'scripts'); };
+            window.stUploadQuickReplyFiles = (files) => { this._uploadExtensionsFiles(files, 'quick_replies'); };
+        },
+
+        async _uploadExtensionsFiles(files, targetType) {
+            const list = files || [];
+            if (!list || list.length === 0) return;
+
+            if (targetType && this.currentMode !== targetType) {
+                // 确保上传后刷新列表使用正确的 mode
+                this.currentMode = targetType;
+            }
+
+            const formData = new FormData();
+            for (let i = 0; i < list.length; i++) {
+                formData.append('files', list[i]);
+            }
+            formData.append('target_type', targetType);
+
+            this.isLoading = true;
+            try {
+                const resp = await fetch('/api/extensions/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                const res = await resp.json();
+                if (res.success) {
+                    this.$store.global.showToast(res.msg);
+                    this.fetchItems();
+                } else {
+                    this.$store.global.showToast(res.msg, 'error');
+                }
+            } catch (e) {
+                this.$store.global.showToast('上传失败', 'error');
+            } finally {
+                this.isLoading = false;
+            }
         },
 
         fetchItems() {
@@ -59,31 +99,7 @@ export default function extensionGrid() {
             this.dragOver = false;
             const files = e.dataTransfer.files;
             if (!files.length) return;
-            
-            const formData = new FormData();
-            for (let i = 0; i < files.length; i++) {
-                formData.append('files', files[i]);
-            }
-            formData.append('target_type', this.currentMode);
-            
-            this.isLoading = true;
-            try {
-                const resp = await fetch('/api/extensions/upload', {
-                    method: 'POST',
-                    body: formData
-                });
-                const res = await resp.json();
-                if (res.success) {
-                    this.$store.global.showToast(res.msg);
-                    this.fetchItems();
-                } else {
-                    this.$store.global.showToast(res.msg, 'error');
-                }
-            } catch (e) {
-                this.$store.global.showToast('上传失败', 'error');
-            } finally {
-                this.isLoading = false;
-            }
+            this._uploadExtensionsFiles(files, this.currentMode);
         },
 
         openItem(item) {

@@ -387,6 +387,7 @@ export default function sidebar() {
          * 移动端悬浮导入按钮：文件选择完成回调
          * - 在角色卡模式下：复用 cardGrid 的拖拽上传逻辑 (window.stUploadCardFiles)
          * - 在世界书模式下：复用 wiGrid 的拖拽上传逻辑 (window.stUploadWorldInfoFiles)
+         * - 在预设/正则脚本/ST脚本/快速回复模式下：复用对应 grid 的拖拽上传逻辑
          */
         handleMobileImportChange(e) {
             const input = e.target;
@@ -397,7 +398,7 @@ export default function sidebar() {
                 return;
             }
 
-            const mode = this.currentMode; // 'cards' | 'worldinfo' | 'chats'
+            const mode = this.currentMode; // 'cards' | 'worldinfo' | 'chats' | 'presets' | 'regex' | 'scripts' | 'quick_replies'
 
             // === 1. 角色卡上传 ===
             if (mode === 'cards') {
@@ -431,6 +432,54 @@ export default function sidebar() {
                     window.stUploadChatFiles(files, {});
                 } else {
                     alert('聊天网格尚未准备好，稍后再试一次。');
+                }
+
+                input.value = '';
+                return;
+            }
+
+            // === 4. 预设上传 ===
+            if (mode === 'presets') {
+                if (window.stUploadPresetFiles) {
+                    window.stUploadPresetFiles(files);
+                } else {
+                    alert('预设网格尚未准备好，稍后再试一次。');
+                }
+
+                input.value = '';
+                return;
+            }
+
+            // === 5. 正则脚本上传 ===
+            if (mode === 'regex') {
+                if (window.stUploadRegexFiles) {
+                    window.stUploadRegexFiles(files);
+                } else {
+                    alert('正则脚本网格尚未准备好，稍后再试一次。');
+                }
+
+                input.value = '';
+                return;
+            }
+
+            // === 6. ST脚本上传 ===
+            if (mode === 'scripts') {
+                if (window.stUploadScriptFiles) {
+                    window.stUploadScriptFiles(files);
+                } else {
+                    alert('ST脚本网格尚未准备好，稍后再试一次。');
+                }
+
+                input.value = '';
+                return;
+            }
+
+            // === 7. 快速回复上传 ===
+            if (mode === 'quick_replies') {
+                if (window.stUploadQuickReplyFiles) {
+                    window.stUploadQuickReplyFiles(files);
+                } else {
+                    alert('快速回复网格尚未准备好，稍后再试一次。');
                 }
 
                 input.value = '';

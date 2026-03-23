@@ -49,6 +49,40 @@ export default function presetGrid() {
 
             // presetDetailReader.js 会处理 open-preset-reader 事件
             // 本组件只负责触发事件，不监听
+
+            // 提供给移动端/外部（如 Sidebar 导入按钮）复用的全局上传入口
+            window.stUploadPresetFiles = (files) => {
+                this._uploadPresetsFiles(files);
+            };
+        },
+
+        async _uploadPresetsFiles(files) {
+            const list = files || [];
+            if (!list || list.length === 0) return;
+
+            const formData = new FormData();
+            for (let i = 0; i < list.length; i++) {
+                formData.append('files', list[i]);
+            }
+
+            this.isLoading = true;
+            try {
+                const resp = await fetch('/api/presets/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                const res = await resp.json();
+                if (res.success) {
+                    this.$store.global.showToast(res.msg);
+                    this.fetchItems();
+                } else {
+                    this.$store.global.showToast(res.msg, 'error');
+                }
+            } catch (e) {
+                this.$store.global.showToast('上传失败', 'error');
+            } finally {
+                this.isLoading = false;
+            }
         },
 
         fetchItems() {
@@ -77,30 +111,7 @@ export default function presetGrid() {
             this.dragOver = false;
             const files = e.dataTransfer.files;
             if (!files.length) return;
-
-            const formData = new FormData();
-            for (let i = 0; i < files.length; i++) {
-                formData.append('files', files[i]);
-            }
-
-            this.isLoading = true;
-            try {
-                const resp = await fetch('/api/presets/upload', {
-                    method: 'POST',
-                    body: formData
-                });
-                const res = await resp.json();
-                if (res.success) {
-                    this.$store.global.showToast(res.msg);
-                    this.fetchItems();
-                } else {
-                    this.$store.global.showToast(res.msg, 'error');
-                }
-            } catch (e) {
-                this.$store.global.showToast('上传失败', 'error');
-            } finally {
-                this.isLoading = false;
-            }
+            this._uploadPresetsFiles(files);
         },
 
         async openPreset(item) {

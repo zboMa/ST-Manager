@@ -5,7 +5,7 @@
     <input type="file" x-ref="mobileImportInput" class="hidden" multiple accept=".json,.png,.jsonl,application/json,image/png"
         @change="handleMobileImportChange($event)" />
     <!-- 导入按钮 -->
-    <button @click="$refs.mobileImportInput.click()" class="sidebar-group-btn sidebar-group-btn-top">
+    <button x-show="currentMode !== 'chats'" @click="$refs.mobileImportInput.click()" class="sidebar-group-btn sidebar-group-btn-top">
         <span class="toggle-icon">📥</span>
     </button>
     <!-- 打开侧边栏按钮 -->
