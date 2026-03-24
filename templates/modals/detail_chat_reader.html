@@ -2,7 +2,7 @@
     <div class="chat-reader-modal chat-reader-modal--fullscreen" role="dialog" aria-modal="true" aria-label="聊天阅读器">
         <div class="chat-reader-live-region" role="status" aria-live="polite" x-text="readerShellStatusText"></div>
         <div class="chat-reader-live-region" role="alert" aria-live="assertive" x-text="readerSaveFeedbackTone === 'error' ? readerShellStatusText : ''"></div>
-        <div class="chat-reader-header">
+        <div class="chat-reader-header" :class="'is-' + readerResponsiveMode">
             <div class="chat-reader-header-main">
                 <div class="chat-reader-header-context">
                     <div class="chat-reader-title-block">
@@ -38,15 +38,15 @@
             <div class="chat-reader-header-actions">
                 <div class="chat-reader-header-primary">
                     <div class="chat-reader-header-tools">
-                        <button class="chat-reader-toggle" :class="$store.global.deviceType === 'mobile' ? (readerMobilePanel === 'tools' ? 'is-active' : '') : (readerShowLeftPanel ? 'is-active' : '')" @click="toggleReaderPanel('left')">工具</button>
-                        <button class="chat-reader-toggle" x-show="$store.global.deviceType !== 'mobile'" :class="readerShowRightPanel ? 'is-active' : ''" @click="toggleReaderPanel('right')">检索</button>
-                        <button class="chat-reader-toggle" x-show="$store.global.deviceType === 'mobile'" :class="readerMobilePanel === 'search' ? 'is-active' : ''" @click="setReaderMobilePanel('search')">搜索</button>
-                        <button class="chat-reader-toggle" x-show="$store.global.deviceType === 'mobile'" :class="readerMobilePanel === 'navigator' ? 'is-active' : ''" @click="setReaderMobilePanel('navigator')">导航</button>
+                        <button class="chat-reader-toggle" :class="readerResponsiveMode === 'mobile' ? (readerMobilePanel === 'tools' ? 'is-active' : '') : (readerShowLeftPanel ? 'is-active' : '')" @click="toggleReaderPanel('left')">工具</button>
+                        <button class="chat-reader-toggle" x-show="readerResponsiveMode !== 'mobile'" :class="readerShowRightPanel ? 'is-active' : ''" @click="toggleReaderPanel('right')">检索</button>
+                        <button class="chat-reader-toggle" x-show="readerResponsiveMode === 'mobile'" :class="readerMobilePanel === 'search' ? 'is-active' : ''" @click="setReaderMobilePanel('search')">搜索</button>
+                        <button class="chat-reader-toggle" x-show="readerResponsiveMode === 'mobile'" :class="readerMobilePanel === 'navigator' ? 'is-active' : ''" @click="setReaderMobilePanel('navigator')">导航</button>
                         <button class="chat-reader-toggle" :class="readerAppMode ? 'is-active' : ''"
                             @click="readerAppMode ? deactivateChatAppStage() : activateChatAppStage()">
                             整页实例
                         </button>
-                        <button class="chat-reader-toggle" x-show="$store.global.deviceType === 'mobile'" @click="hideReaderPanels()">阅读</button>
+                        <button class="chat-reader-toggle" x-show="readerResponsiveMode === 'mobile'" @click="hideReaderPanels()">阅读</button>
                     </div>
                     <button class="chat-toolbar-btn chat-toolbar-btn--primary" @click="saveChatMeta()">保存备注</button>
                 </div>
@@ -323,10 +323,10 @@
             <aside x-show="readerShowRightPanel" class="chat-reader-right custom-scrollbar">
                 <div class="chat-reader-rail-head">
                     <div>
-                        <div class="chat-grid-kicker" x-text="$store.global.deviceType === 'mobile'
+                        <div class="chat-grid-kicker" x-text="readerResponsiveMode === 'mobile'
                             ? (readerMobilePanel === 'tools' ? 'Tools' : (readerMobilePanel === 'search' ? 'Search' : 'Navigator'))
                             : 'Navigator'"></div>
-                        <div class="chat-reader-rail-title" x-text="$store.global.deviceType === 'mobile'
+                        <div class="chat-reader-rail-title" x-text="readerResponsiveMode === 'mobile'
                             ? (readerMobilePanel === 'tools' ? '工具抽屉' : (readerMobilePanel === 'search' ? '全文搜索' : '楼层导航'))
                             : '检索与目录'"></div>
                     </div>
@@ -337,12 +337,12 @@
                     </button>
                 </div>
 
-                <div class="chat-reader-rail-tabs" x-show="$store.global.deviceType !== 'mobile'">
+                <div class="chat-reader-rail-tabs" x-show="readerResponsiveMode !== 'mobile'">
                     <button type="button" class="chat-reader-rail-tab" :class="readerRightTab === 'search' ? 'is-active' : ''" @click="readerRightTab = 'search'">全文搜索</button>
                     <button type="button" class="chat-reader-rail-tab" :class="readerRightTab === 'floors' ? 'is-active' : ''" @click="readerRightTab = 'floors'">楼层导航</button>
                 </div>
 
-                <div class="chat-reader-panel-group" x-show="$store.global.deviceType === 'mobile' && readerMobilePanel === 'tools'">
+                <div class="chat-reader-panel-group" x-show="readerResponsiveMode === 'mobile' && readerMobilePanel === 'tools'">
                     <div class="chat-reader-panel chat-reader-panel--quiet">
                         <div class="chat-reader-panel-title">聊天信息</div>
                         <div class="chat-reader-info-grid" x-show="activeChat">
@@ -464,7 +464,7 @@
                     </div>
                 </div>
 
-                <div class="chat-reader-panel" x-show="($store.global.deviceType !== 'mobile' && readerRightTab === 'search') || ($store.global.deviceType === 'mobile' && readerMobilePanel === 'search')">
+                <div class="chat-reader-panel" x-show="(readerResponsiveMode !== 'mobile' && readerRightTab === 'search') || (readerResponsiveMode === 'mobile' && readerMobilePanel === 'search')">
                     <div class="chat-reader-panel-title">全文搜索</div>
                     <label class="chat-reader-field">
                         <span>关键字</span>
@@ -478,7 +478,7 @@
                     <div class="chat-reader-search-meta" role="status" aria-live="polite" x-text="detailSearchResults.length > 0 ? ('命中 ' + detailSearchResults.length + ' 条') : '暂无命中'"></div>
                 </div>
 
-                <div class="chat-reader-panel" x-show="(($store.global.deviceType !== 'mobile' && readerRightTab === 'floors') || ($store.global.deviceType === 'mobile' && readerMobilePanel === 'navigator')) && activeChat">
+                <div class="chat-reader-panel" x-show="((readerResponsiveMode !== 'mobile' && readerRightTab === 'floors') || (readerResponsiveMode === 'mobile' && readerMobilePanel === 'navigator')) && activeChat">
                     <div class="chat-reader-panel-title">楼层导航</div>
                     <div class="chat-reader-search-meta" role="status" aria-live="polite" x-text="readerNavBatchSummaryText"></div>
                     <div class="chat-reader-search-meta" x-show="activeChat?.message_index_truncated" role="note">Long chat uses batched floor index loading</div>

@@ -112,7 +112,7 @@ def test_chat_reader_template_contains_workbench_regions():
     shell = extract_chat_reader_shell(reader_template)
 
     shell_pattern = re.compile(
-        r'<div class="chat-reader-header">.*?'
+        r'<div class="chat-reader-header" :class="\'is-\' \+ readerResponsiveMode">.*?'
         r'<div class="chat-reader-body" :style="readerBodyGridStyle">.*?'
         r'<aside x-show="readerShowLeftPanel" class="chat-reader-left custom-scrollbar">.*?'
         r'<main class="chat-reader-center custom-scrollbar" @scroll.passive="handleReaderScroll\(\)">.*?'
@@ -159,8 +159,9 @@ def test_chat_grid_reconciles_reader_panel_state_on_device_type_changes():
 
     assert 'reconcileReaderPanelsForDeviceType' in chat_grid_source
     assert "this.$watch('$store.global.deviceType'" in chat_grid_source
-    assert 'this.reconcileReaderPanelsForDeviceType(deviceType);' in chat_grid_source
-    assert "if (deviceType === 'mobile')" in chat_grid_source
+    assert 'this.reconcileReaderPanelsForDeviceType();' in chat_grid_source
+    assert "if (responsiveMode === 'mobile')" in chat_grid_source
+    assert "if (responsiveMode === 'tablet')" in chat_grid_source
     assert "this.readerMobilePanel = this.readerShowLeftPanel ? 'tools' : (this.readerRightTab === 'floors' ? 'navigator' : 'search');" in chat_grid_source
     assert "this.readerShowLeftPanel = this.readerMobilePanel === 'tools';" in chat_grid_source
     assert "this.readerShowRightPanel = true;" in chat_grid_source
@@ -213,3 +214,26 @@ def test_chat_grid_resets_reader_feedback_tone_to_steady_state():
     assert "this.readerSaveFeedbackTone = this.replaceStatus || this.regexConfigStatus ? 'neutral' : 'neutral';" not in chat_grid_source
     assert "this.readerSaveFeedbackTone = this.replaceStatus || this.regexConfigStatus ? 'neutral' : 'neutral'" not in chat_grid_source
     assert 'this.setReaderFeedbackTone();' in chat_grid_source
+
+
+def test_chat_reader_css_defines_distinct_tablet_and_mobile_breakpoints():
+    chat_reader_css = read_project_file('static/css/modules/view-chats.css')
+
+    assert '@media (max-width: 1179px)' in chat_reader_css
+    assert '@media (max-width: 899px)' in chat_reader_css
+
+
+def test_chat_reader_template_keeps_header_identity_and_action_groups():
+    reader_template = read_project_file('templates/modals/detail_chat_reader.html')
+
+    assert 'chat-reader-header-main' in reader_template
+    assert 'chat-reader-header-context' in reader_template
+    assert 'chat-reader-header-actions' in reader_template
+    assert 'chat-reader-header-tools' in reader_template
+    assert 'chat-reader-header-stats' in reader_template
+
+
+def test_chat_grid_reader_mobile_mode_is_not_only_ua_driven():
+    chat_grid_source = read_project_file('static/js/components/chatGrid.js')
+
+    assert 'window.innerWidth < 900' in chat_grid_source or 'matchMedia' in chat_grid_source or 'readerResponsiveMode' in chat_grid_source

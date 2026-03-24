@@ -2824,7 +2824,7 @@ export default function chatGrid() {
         },
 
         get readerMobilePanelCloseLabel() {
-            if (this.$store.global.deviceType !== 'mobile') {
+            if (this.readerResponsiveMode !== 'mobile') {
                 return '关闭检索栏';
             }
             if (this.readerMobilePanel === 'tools') {
@@ -2834,6 +2834,16 @@ export default function chatGrid() {
                 return '关闭楼层导航';
             }
             return '关闭全文搜索';
+        },
+
+        get readerResponsiveMode() {
+            if (typeof window !== 'undefined' && window.innerWidth < 900) {
+                return 'mobile';
+            }
+            if (typeof window !== 'undefined' && window.innerWidth < 1180) {
+                return 'tablet';
+            }
+            return 'desktop';
         },
 
         get readerViewportStatusText() {
@@ -4334,13 +4344,15 @@ export default function chatGrid() {
         },
 
         get readerBodyGridStyle() {
-            const isMobile = this.$store.global.deviceType === 'mobile';
-            const left = this.readerShowLeftPanel ? (isMobile ? 0 : 320) : 0;
-            const right = this.readerShowRightPanel ? (isMobile ? 0 : 300) : 0;
-
-            if (isMobile) {
+            const mode = this.readerResponsiveMode;
+            if (mode === 'mobile') {
                 return 'grid-template-columns: minmax(0, 1fr);';
             }
+
+            const leftWidth = mode === 'tablet' ? 264 : 320;
+            const rightWidth = mode === 'tablet' ? 280 : 300;
+            const left = this.readerShowLeftPanel ? leftWidth : 0;
+            const right = this.readerShowRightPanel ? rightWidth : 0;
 
             return `grid-template-columns: ${left}px minmax(0, 1fr) ${right}px;`;
         },
@@ -4382,9 +4394,9 @@ export default function chatGrid() {
                 this.fetchChats();
             });
 
-            this.$watch('$store.global.deviceType', (deviceType) => {
+            this.$watch('$store.global.deviceType', () => {
                 if (!this.detailOpen) return;
-                this.reconcileReaderPanelsForDeviceType(deviceType);
+                this.reconcileReaderPanelsForDeviceType();
             });
 
             this.$watch('readerRenderMode', (value) => {
@@ -4479,6 +4491,7 @@ export default function chatGrid() {
 
             window.addEventListener('resize', () => {
                 if (this.detailOpen) {
+                    this.reconcileReaderPanelsForDeviceType();
                     this.updateReaderLayoutMetrics();
                     this.syncReaderViewportFloor();
                 }
@@ -4616,9 +4629,9 @@ export default function chatGrid() {
             this.editingMessagePreviewMode = 'parsed';
             this.updateReaderLayoutMetrics();
 
-            const isMobile = this.$store.global.deviceType === 'mobile';
-            this.readerShowLeftPanel = !isMobile;
-            this.readerShowRightPanel = !isMobile;
+            const responsiveMode = this.readerResponsiveMode;
+            this.readerShowLeftPanel = responsiveMode !== 'mobile';
+            this.readerShowRightPanel = responsiveMode !== 'mobile';
             this.readerMobilePanel = '';
 
             try {
@@ -5358,7 +5371,7 @@ export default function chatGrid() {
         },
 
         toggleReaderPanel(side) {
-            const isMobile = this.$store.global.deviceType === 'mobile';
+            const isMobile = this.readerResponsiveMode === 'mobile';
 
             if (isMobile) {
                 const panel = side === 'left' ? 'tools' : 'search';
@@ -5425,8 +5438,10 @@ export default function chatGrid() {
             this.updateReaderLayoutMetrics();
         },
 
-        reconcileReaderPanelsForDeviceType(deviceType) {
-            if (deviceType === 'mobile') {
+        reconcileReaderPanelsForDeviceType() {
+            const responsiveMode = this.readerResponsiveMode;
+
+            if (responsiveMode === 'mobile') {
                 if (!this.readerMobilePanel && (this.readerShowLeftPanel || this.readerShowRightPanel)) {
                     this.readerMobilePanel = this.readerShowLeftPanel ? 'tools' : (this.readerRightTab === 'floors' ? 'navigator' : 'search');
                 }
@@ -5439,6 +5454,24 @@ export default function chatGrid() {
                 }
 
                 this.hideReaderPanels();
+                return;
+            }
+
+            if (responsiveMode === 'tablet') {
+                if (this.readerMobilePanel === 'tools') {
+                    this.readerShowLeftPanel = true;
+                    this.readerShowRightPanel = false;
+                } else if (this.readerMobilePanel === 'search' || this.readerMobilePanel === 'navigator') {
+                    this.readerShowLeftPanel = false;
+                    this.readerShowRightPanel = true;
+                    this.readerRightTab = this.readerMobilePanel === 'navigator' ? 'floors' : 'search';
+                } else if (!this.readerShowLeftPanel && !this.readerShowRightPanel) {
+                    this.readerShowLeftPanel = true;
+                    this.readerShowRightPanel = true;
+                }
+
+                this.readerMobilePanel = '';
+                this.updateReaderLayoutMetrics();
                 return;
             }
 
@@ -5456,12 +5489,12 @@ export default function chatGrid() {
         },
 
         setReaderMobilePanel(panel) {
-            if (this.$store.global.deviceType !== 'mobile') return;
+            if (this.readerResponsiveMode !== 'mobile') return;
             this.syncMobileReaderPanelState(panel);
         },
 
         hideReaderPanels() {
-            if (this.$store.global.deviceType === 'mobile') {
+            if (this.readerResponsiveMode === 'mobile') {
                 this.readerMobilePanel = '';
                 this.readerShowLeftPanel = false;
                 this.readerShowRightPanel = false;
