@@ -330,7 +330,7 @@
                             ? (readerMobilePanel === 'tools' ? '工具抽屉' : (readerMobilePanel === 'search' ? '全文搜索' : '楼层导航'))
                             : '检索与目录'"></div>
                     </div>
-                    <button type="button" class="chat-reader-icon-button chat-reader-rail-close" @click="hideReaderPanels()" aria-label="关闭检索栏" title="关闭检索栏">
+                    <button type="button" class="chat-reader-icon-button chat-reader-rail-close" @click="hideReaderPanels()" :aria-label="readerMobilePanelCloseLabel" :title="readerMobilePanelCloseLabel">
                         <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false">
                             <path d="M5.5 5.5l9 9m0-9l-9 9" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.8"></path>
                         </svg>
@@ -503,7 +503,7 @@
     </div>
 </div>
 
-<div x-show="readerViewSettingsOpen" x-cloak class="chat-reader-overlay" style="z-index: calc(var(--z-topmost) - 3);" @click.self="readerViewSettingsOpen = false">
+<div x-show="readerViewSettingsOpen" x-cloak class="chat-reader-overlay" style="z-index: calc(var(--z-topmost) - 3);" @click.self="readerViewSettingsOpen = false" @keydown.escape.window.prevent="readerViewSettingsOpen = false">
     <div class="chat-bind-modal chat-reader-nested-modal chat-reader-nested-modal--settings chat-reader-transition-surface" role="dialog" aria-modal="true" aria-label="楼层显示与渲染策略">
         <div class="chat-bind-header chat-reader-nested-header">
             <div class="chat-reader-nested-heading">
@@ -557,7 +557,7 @@
     </div>
 </div>
 
-<div x-show="regexConfigOpen" x-cloak class="chat-reader-overlay" style="z-index: calc(var(--z-topmost) - 2);" @click.self="closeRegexConfig()">
+<div x-show="regexConfigOpen" x-cloak class="chat-reader-overlay" style="z-index: calc(var(--z-topmost) - 2);" @click.self="closeRegexConfig()" @keydown.escape.window.prevent="closeRegexConfig()">
     <div class="chat-bind-modal chat-reader-editor-modal chat-reader-nested-modal chat-reader-transition-surface" role="dialog" aria-modal="true" aria-label="聊天解析规则">
         <div class="chat-bind-header chat-reader-regex-header chat-reader-nested-header">
             <div class="chat-reader-nested-heading">
@@ -925,7 +925,7 @@
     </div>
 </div>
 
-<div x-show="editingFloor" x-cloak class="chat-reader-overlay" style="z-index: calc(var(--z-topmost) - 1);" @click.self="closeFloorEditor()">
+<div x-show="editingFloor" x-cloak class="chat-reader-overlay" style="z-index: calc(var(--z-topmost) - 1);" @click.self="closeFloorEditor()" @keydown.escape.window.prevent="closeFloorEditor()">
     <div class="chat-bind-modal chat-reader-editor-modal chat-reader-nested-modal chat-reader-transition-surface chat-reader-editor-modal--floor" role="dialog" aria-modal="true" aria-label="楼层编辑器">
         <div class="chat-bind-header chat-reader-nested-header">
             <div class="chat-reader-nested-heading">
@@ -970,7 +970,7 @@
     </div>
 </div>
 
-<div x-show="bindPickerOpen" x-cloak class="chat-reader-overlay" style="z-index: var(--z-modal-popover);" @click.self="closeBindPicker()">
+<div x-show="bindPickerOpen" x-cloak class="chat-reader-overlay" style="z-index: var(--z-modal-popover);" @click.self="closeBindPicker()" @keydown.escape.window.prevent="closeBindPicker()">
     <div class="chat-bind-modal chat-reader-nested-modal chat-reader-transition-surface" role="dialog" aria-modal="true" aria-label="角色卡绑定选择器">
         <div class="chat-bind-header chat-reader-nested-header">
             <div class="chat-reader-nested-heading">

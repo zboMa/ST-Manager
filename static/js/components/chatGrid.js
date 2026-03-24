@@ -2823,6 +2823,19 @@ export default function chatGrid() {
             return `阅读定位 ${this.readerViewportStatusText} · 锚点 ${this.readerAnchorStatusText}`;
         },
 
+        get readerMobilePanelCloseLabel() {
+            if (this.$store.global.deviceType !== 'mobile') {
+                return '关闭检索栏';
+            }
+            if (this.readerMobilePanel === 'tools') {
+                return '关闭工具抽屉';
+            }
+            if (this.readerMobilePanel === 'navigator') {
+                return '关闭楼层导航';
+            }
+            return '关闭全文搜索';
+        },
+
         get readerViewportStatusText() {
             if (!this.activeChat) return '未定位';
             const total = Number(this.readerTotalMessages || this.activeChat?.message_count || 0);
@@ -2832,6 +2845,14 @@ export default function chatGrid() {
             );
             if (!floor) return '未定位';
             return `#${floor}`;
+        },
+
+        setReaderFeedbackTone(tone = 'neutral') {
+            if (tone === 'error' || tone === 'danger' || tone === 'success') {
+                this.readerSaveFeedbackTone = tone;
+                return;
+            }
+            this.readerSaveFeedbackTone = 'neutral';
         },
 
         get visibleDetailMessages() {
@@ -4545,6 +4566,7 @@ export default function chatGrid() {
             this.replaceReplacement = '';
             this.replaceUseRegex = false;
             this.replaceStatus = '';
+            this.setReaderFeedbackTone();
             this.readerMobilePanel = '';
             this.readerRightTab = 'search';
             const renderPreferences = loadStoredRenderPreferences();
@@ -4708,6 +4730,7 @@ export default function chatGrid() {
             this.replaceReplacement = '';
             this.replaceUseRegex = false;
             this.replaceStatus = '';
+            this.setReaderFeedbackTone();
             this.readerMobilePanel = '';
             this.readerRightTab = 'search';
             const renderPreferences = loadStoredRenderPreferences();
@@ -5322,7 +5345,7 @@ export default function chatGrid() {
             this.rebuildActiveChatMessages(this.activeRegexConfig);
             resetReaderVisibleMessagesCache(this);
             this.syncReaderViewportFloor();
-            this.readerSaveFeedbackTone = 'success';
+            this.setReaderFeedbackTone('success');
             this.$store.global.showToast('阅读视图设置已保存', 1500);
         },
 
@@ -6353,7 +6376,7 @@ export default function chatGrid() {
             this.selectedDraftRegexRuleIndex = 0;
             this.regexConfigStatus = '';
             this.regexConfigSourceLabel = this.describeRegexConfigSource();
-            this.readerSaveFeedbackTone = 'success';
+            this.setReaderFeedbackTone('success');
             if (this.detailSearchQuery) {
                 this.searchInDetail();
             }
@@ -6758,7 +6781,7 @@ export default function chatGrid() {
             });
             if (!ok) return;
 
-            this.readerSaveFeedbackTone = 'success';
+            this.setReaderFeedbackTone('success');
             this.closeFloorEditor();
             if (this.detailSearchQuery) {
                 this.searchInDetail();
@@ -6842,10 +6865,10 @@ export default function chatGrid() {
                 }
 
                 window.dispatchEvent(new CustomEvent('refresh-detail-chats'));
-                this.readerSaveFeedbackTone = 'success';
+                this.setReaderFeedbackTone('success');
                 this.$store.global.showToast('聊天本地信息已保存', 1500);
             } catch (err) {
-                this.readerSaveFeedbackTone = 'error';
+                this.setReaderFeedbackTone('error');
                 alert('保存聊天信息失败: ' + err);
             }
         },
@@ -6867,10 +6890,10 @@ export default function chatGrid() {
                     this.closeChatDetail();
                 }
                 window.dispatchEvent(new CustomEvent('refresh-detail-chats'));
-                this.readerSaveFeedbackTone = 'danger';
+                this.setReaderFeedbackTone('danger');
                 this.$store.global.showToast('聊天记录已移至回收站', 1800);
             } catch (err) {
-                this.readerSaveFeedbackTone = 'error';
+                this.setReaderFeedbackTone('error');
                 alert('删除失败: ' + err);
             }
         },
@@ -6975,10 +6998,10 @@ export default function chatGrid() {
                     await this.reloadActiveChat();
                 }
                 this.closeBindPicker();
-                this.readerSaveFeedbackTone = unbind ? 'danger' : 'success';
+                this.setReaderFeedbackTone(unbind ? 'danger' : 'success');
                 this.$store.global.showToast(unbind ? '聊天绑定已解除' : '聊天绑定已更新', 1500);
             } catch (err) {
-                this.readerSaveFeedbackTone = 'error';
+                this.setReaderFeedbackTone('error');
                 alert('绑定失败: ' + err);
             }
         },
@@ -7431,7 +7454,7 @@ export default function chatGrid() {
 
             if (totalReplaced === 0) {
                 this.replaceStatus = '没有找到可替换内容';
-                this.readerSaveFeedbackTone = 'neutral';
+                this.setReaderFeedbackTone();
                 this.$store.global.showToast(this.replaceStatus, 1400);
                 return;
             }
@@ -7440,7 +7463,7 @@ export default function chatGrid() {
             if (!ok) return;
 
             this.replaceStatus = `已在 ${changedMessages} 条记录中替换 ${totalReplaced} 处`;
-            this.readerSaveFeedbackTone = 'success';
+            this.setReaderFeedbackTone('success');
             if (this.detailSearchQuery) {
                 this.searchInDetail();
             }

@@ -189,10 +189,27 @@ def test_chat_reader_template_exposes_reader_status_and_accessibility_hooks():
     assert 'role="alert"' in reader_template
     assert 'aria-live="assertive"' in reader_template
     assert 'aria-label="关闭工具栏"' in reader_template
-    assert 'aria-label="关闭检索栏"' in reader_template
+    assert ':aria-label="readerMobilePanelCloseLabel"' in reader_template
     assert 'aria-label="关闭聊天阅读器"' in reader_template
     assert ":aria-label=\"isBookmarked(message.floor) ? '取消收藏楼层' : '收藏楼层'\"" in reader_template
     assert '危险操作 · 删除会直接移除当前聊天记录' in reader_template
     assert 'role="note"' in reader_template
     assert 'readerShellStatusText' in reader_template
     assert 'readerSaveFeedbackTone' in reader_template
+    assert "readerMobilePanelCloseLabel" in reader_template
+    assert ':aria-label="readerMobilePanelCloseLabel"' in reader_template
+    assert ':title="readerMobilePanelCloseLabel"' in reader_template
+    assert '@keydown.escape.window.prevent="readerViewSettingsOpen = false"' in reader_template
+    assert '@keydown.escape.window.prevent="closeRegexConfig()"' in reader_template
+    assert '@keydown.escape.window.prevent="closeFloorEditor()"' in reader_template
+    assert '@keydown.escape.window.prevent="closeBindPicker()"' in reader_template
+
+
+def test_chat_grid_resets_reader_feedback_tone_to_steady_state():
+    chat_grid_source = read_project_file('static/js/components/chatGrid.js')
+
+    assert 'setReaderFeedbackTone(tone = \'neutral\')' in chat_grid_source
+    assert "if (tone === 'error' || tone === 'danger' || tone === 'success')" in chat_grid_source
+    assert "this.readerSaveFeedbackTone = this.replaceStatus || this.regexConfigStatus ? 'neutral' : 'neutral';" not in chat_grid_source
+    assert "this.readerSaveFeedbackTone = this.replaceStatus || this.regexConfigStatus ? 'neutral' : 'neutral'" not in chat_grid_source
+    assert 'this.setReaderFeedbackTone();' in chat_grid_source
