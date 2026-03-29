@@ -20,7 +20,6 @@ app.log
 cards_metadata.db*
 
 # 测试和文档目录
-docs/
 discord/
 .worktrees/
 .superpowers/
