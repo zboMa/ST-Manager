@@ -18,7 +18,13 @@ import { getCardDetail, listCards } from '../api/card.js';
 import { openPath } from '../api/system.js';
 import { formatDate } from '../utils/format.js';
 import { ChatAppStage } from '../runtime/chatAppStage.js';
-import { renderMarkdown, updateInlineRenderContent, clearInlineIsolatedHtml } from '../utils/dom.js';
+import {
+    renderMarkdown,
+    updateInlineRenderContent,
+    clearInlineIsolatedHtml,
+    applyPretextIntrinsicSize,
+    estimatePretextBlockHeight,
+} from '../utils/dom.js';
 import {
     extractReaderEnhancementMetadata,
     buildReaderEnhancementPolicy,
@@ -6976,6 +6982,8 @@ export default function chatGrid() {
             const html = variant === 'simple'
                 ? this.renderMessageSimpleHtml(message)
                 : this.renderMessageDisplayHtml(message);
+
+            this.applyReaderPretextIntrinsicSize(el, message, variant, html);
             const signature = JSON.stringify({
                 chatId,
                 floor,
@@ -6995,6 +7003,33 @@ export default function chatGrid() {
             if (variant === 'full') {
                 this.mountMessageDisplayNow(el, message);
             }
+        },
+
+        applyReaderPretextIntrinsicSize(el, message, variant = 'full', renderedHtml = '') {
+            if (!(el instanceof HTMLElement) || !message) return null;
+
+            const source = String(renderedHtml || this.ensureMessageDisplaySource(message) || message?.content || message?.mes || '');
+            const lineHeight = variant === 'simple' ? 28 : 30;
+            const fallbackWidth = Math.min(window.innerWidth || 1200, 960);
+            const estimate = estimatePretextBlockHeight(source, {
+                element: el,
+                whiteSpace: 'pre-wrap',
+                lineHeight,
+                minHeight: variant === 'simple' ? 44 : 72,
+                maxHeight: 0,
+                fallbackWidth,
+            });
+
+            applyPretextIntrinsicSize(el, source, {
+                element: el,
+                whiteSpace: 'pre-wrap',
+                lineHeight: estimate.lineHeight,
+                minHeight: estimate.height,
+                maxHeight: estimate.height,
+                fallbackWidth,
+            });
+
+            return estimate;
         },
 
         shouldRenderMessageAsApp(message) {

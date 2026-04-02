@@ -1560,10 +1560,13 @@ select.form-input:focus-visible {
 }
 
 .chat-message-content {
+  --stm-pretext-block-size: 180px;
   line-height: 1.85;
   color: var(--text-main);
   font-size: 0.95rem;
   padding-left: 0;
+  content-visibility: auto;
+  contain-intrinsic-size: auto var(--stm-pretext-block-size);
 }
 
 .chat-inline-runtime-wrap {

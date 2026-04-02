@@ -4,10 +4,34 @@
  */
 
 const htmlComponentRenderCache = new WeakMap();
+const pretextIntrinsicSignatureCache = new WeakMap();
+let pretextModule = null;
+let pretextModulePromise = null;
 let renderRuntimeModule = null;
 let renderRuntimeModulePromise = null;
 let messageSegmentRendererModule = null;
 let messageSegmentRendererModulePromise = null;
+
+function loadPretextModule() {
+    if (pretextModule) {
+        return Promise.resolve(pretextModule);
+    }
+
+    if (!pretextModulePromise) {
+        pretextModulePromise = import('../vendor/pretext/layout.js')
+            .then((module) => {
+                pretextModule = module;
+                return module;
+            })
+            .catch((error) => {
+                pretextModulePromise = null;
+                console.warn('Failed to load pretext module:', error);
+                throw error;
+            });
+    }
+
+    return pretextModulePromise;
+}
 
 function loadRenderRuntimeModule() {
     if (renderRuntimeModule) {
@@ -221,6 +245,231 @@ function buildHtmlComponentSignature(content, options = {}) {
     });
 }
 
+function decodePretextEntities(text) {
+    return String(text || '')
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/&lt;/gi, '<')
+        .replace(/&gt;/gi, '>')
+        .replace(/&amp;/gi, '&')
+        .replace(/&quot;/gi, '"')
+        .replace(/&#39;/gi, "'");
+}
+
+function stripHtmlForPretext(text) {
+    return String(text || '')
+        .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+        .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<\/(?:p|div|section|article|main|header|footer|blockquote|li|tr|table|pre|h[1-6])>/gi, '\n')
+        .replace(/<[^>]+>/g, ' ');
+}
+
+function normalizePretextSourceText(content, options = {}) {
+    let source = String(content || '');
+    if (!source.trim()) {
+        return '';
+    }
+
+    source = source.replace(/<open>|<\/open>/gi, '');
+    source = source.replace(/```(?:[a-z0-9_-]+)?\s*/gi, '');
+    source = source.replace(/```/g, '');
+
+    if (options.stripTags !== false && /<\/?[a-z][\s\S]*>/i.test(source)) {
+        source = stripHtmlForPretext(source);
+    }
+
+    source = decodePretextEntities(source)
+        .replace(/\r\n/g, '\n')
+        .replace(/[\r\f]/g, '\n')
+        .replace(/\t/g, '        ')
+        .replace(/\n{3,}/g, '\n\n');
+
+    return source.trim();
+}
+
+function resolvePretextFont(target, options = {}) {
+    if (typeof options.font === 'string' && options.font.trim()) {
+        return options.font.trim();
+    }
+
+    if (target instanceof HTMLElement && typeof window !== 'undefined' && typeof window.getComputedStyle === 'function') {
+        const style = window.getComputedStyle(target);
+        if (style.font && style.font.trim()) {
+            return style.font.trim();
+        }
+
+        const parts = [
+            style.fontStyle || 'normal',
+            style.fontVariant || 'normal',
+            style.fontWeight || '400',
+        ];
+
+        if (style.fontStretch && style.fontStretch !== 'normal') {
+            parts.push(style.fontStretch);
+        }
+
+        parts.push(style.fontSize || '16px');
+        parts.push(style.fontFamily || 'sans-serif');
+        return parts.filter(Boolean).join(' ').trim();
+    }
+
+    return '400 16px sans-serif';
+}
+
+function resolvePretextLineHeight(target, options = {}) {
+    if (Number.isFinite(Number(options.lineHeight)) && Number(options.lineHeight) > 0) {
+        return Number(options.lineHeight);
+    }
+
+    if (target instanceof HTMLElement && typeof window !== 'undefined' && typeof window.getComputedStyle === 'function') {
+        const style = window.getComputedStyle(target);
+        const fontSize = Number.parseFloat(style.fontSize) || 16;
+        const rawLineHeight = String(style.lineHeight || '').trim();
+        const numericLineHeight = Number.parseFloat(rawLineHeight);
+        if (rawLineHeight.endsWith('px') && Number.isFinite(numericLineHeight) && numericLineHeight > 0) {
+            return numericLineHeight;
+        }
+        if (/^[\d.]+$/.test(rawLineHeight) && Number.isFinite(numericLineHeight) && numericLineHeight > 0) {
+            return numericLineHeight * fontSize;
+        }
+        return fontSize * 1.6;
+    }
+
+    return 24;
+}
+
+function resolvePretextMeasureWidth(target, options = {}) {
+    const explicitWidth = Number(options.maxWidth ?? options.measureWidth ?? 0);
+    if (Number.isFinite(explicitWidth) && explicitWidth > 0) {
+        return explicitWidth;
+    }
+
+    if (target instanceof HTMLElement) {
+        const width = Number(target.clientWidth || target.parentElement?.clientWidth || 0);
+        if (Number.isFinite(width) && width > 0) {
+            return width;
+        }
+    }
+
+    const fallbackWidth = Number(options.fallbackWidth ?? 720);
+    return Number.isFinite(fallbackWidth) && fallbackWidth > 0 ? fallbackWidth : 720;
+}
+
+function clampPretextHeight(height, options = {}) {
+    const minHeight = Number.parseInt(options.minHeight, 10);
+    const maxHeight = Number.parseInt(options.maxHeight, 10);
+    const resolvedMin = Number.isFinite(minHeight) ? Math.max(0, minHeight) : 0;
+    const resolvedMax = Number.isFinite(maxHeight) && maxHeight > 0
+        ? Math.max(resolvedMin, maxHeight)
+        : null;
+
+    let nextHeight = Number.isFinite(Number(height)) ? Math.max(resolvedMin, Math.ceil(Number(height))) : resolvedMin;
+    if (resolvedMax !== null) {
+        nextHeight = Math.min(resolvedMax, nextHeight);
+    }
+    return nextHeight;
+}
+
+function approximatePretextFallbackHeight(text, maxWidth, lineHeight) {
+    const normalized = String(text || '');
+    if (!normalized) {
+        return lineHeight;
+    }
+
+    const estimatedCharsPerLine = Math.max(8, Math.floor(Math.max(1, maxWidth) / 8));
+    const estimatedLines = normalized
+        .split('\n')
+        .reduce((total, line) => total + Math.max(1, Math.ceil(Math.max(1, line.length) / estimatedCharsPerLine)), 0);
+
+    return estimatedLines * lineHeight;
+}
+
+export function estimatePretextBlockHeight(content, options = {}) {
+    const element = options.element instanceof HTMLElement ? options.element : null;
+    const text = normalizePretextSourceText(content, options);
+    const font = resolvePretextFont(element, options);
+    const maxWidth = resolvePretextMeasureWidth(element, options);
+    const lineHeight = resolvePretextLineHeight(element, options);
+
+    if (!text) {
+        const emptyHeight = clampPretextHeight(lineHeight, options);
+        return {
+            text: '',
+            font,
+            maxWidth,
+            lineHeight,
+            lineCount: 0,
+            height: emptyHeight,
+        };
+    }
+
+    const fallbackHeight = clampPretextHeight(
+        approximatePretextFallbackHeight(text, maxWidth, lineHeight),
+        options,
+    );
+    const fallbackEstimate = {
+        text,
+        font,
+        maxWidth,
+        lineHeight,
+        lineCount: Math.max(1, Math.round(fallbackHeight / Math.max(1, lineHeight))),
+        height: fallbackHeight,
+    };
+
+    try {
+        const module = pretextModule;
+        if (!module?.prepare || !module?.layout) {
+            loadPretextModule().catch(() => null);
+            return fallbackEstimate;
+        }
+        const prepared = module.prepare(text, font, {
+            whiteSpace: options.whiteSpace === 'normal' ? 'normal' : 'pre-wrap',
+        });
+        const measured = module.layout(prepared, maxWidth, lineHeight);
+        return {
+            text,
+            font,
+            maxWidth,
+            lineHeight,
+            lineCount: Number(measured.lineCount || 0),
+            height: clampPretextHeight(measured.height, options),
+        };
+    } catch (error) {
+        console.warn('Pretext estimate fallback used:', error);
+        return fallbackEstimate;
+    }
+}
+
+export function applyPretextIntrinsicSize(el, content, options = {}) {
+    if (!(el instanceof HTMLElement)) {
+        return null;
+    }
+
+    const estimate = estimatePretextBlockHeight(content, {
+        ...options,
+        element: options.element instanceof HTMLElement ? options.element : el,
+    });
+    const heightPx = `${Math.max(0, Math.ceil(Number(estimate.height) || 0))}px`;
+    const signature = JSON.stringify({
+        text: estimate.text,
+        font: estimate.font,
+        maxWidth: estimate.maxWidth,
+        lineHeight: estimate.lineHeight,
+        runtimeOwner: String(options.runtimeOwner || ''),
+    });
+
+    if (pretextIntrinsicSignatureCache.get(el) !== signature || el.style.getPropertyValue('--stm-pretext-block-size') !== heightPx) {
+        pretextIntrinsicSignatureCache.set(el, signature);
+        el.style.setProperty('--stm-pretext-block-size', heightPx);
+        el.style.containIntrinsicSize = `auto ${heightPx}`;
+        if (options.enableContentVisibility !== false) {
+            el.style.contentVisibility = 'auto';
+        }
+    }
+
+    return estimate;
+}
+
 export function updateCssVariable(name, value) {
     document.documentElement.style.setProperty(name, value);
 }
@@ -372,8 +621,14 @@ export function updateShadowContent(el, content, options = {}) {
         return;
     }
 
-    let rawContent = content || "";
+    const source = String(content || '');
+    let rawContent = source;
     const trimmedContent = rawContent.trim();
+    applyPretextIntrinsicSize(el, source, {
+        ...options,
+        element: el,
+        whiteSpace: 'pre-wrap',
+    });
 
     const htmlFragmentRegex = /^\s*<(?:div|style|details|section|article|main|link|table|script|iframe|svg|html|body|head|canvas)/i;
     let forceHtmlMode = false;
@@ -673,6 +928,16 @@ export function updateMixedPreviewContent(el, content, options = {}) {
     el.__stmMixedPreviewHost = host;
 
     const source = String(content || '');
+    applyPretextIntrinsicSize(el, source, {
+        ...options,
+        element: el,
+        whiteSpace: 'pre-wrap',
+    });
+    applyPretextIntrinsicSize(host, source, {
+        ...options,
+        element: host,
+        whiteSpace: 'pre-wrap',
+    });
     if (!source.trim()) {
         const emptyHtml = options.emptyHtml || '<span class="text-gray-500 italic">空内容</span>';
         host.innerHTML = emptyHtml;
