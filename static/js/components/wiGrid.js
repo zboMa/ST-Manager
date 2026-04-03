@@ -97,6 +97,21 @@ export default function wiGrid() {
             return item?.display_category || item?.physical_category || '';
         },
 
+        getWorldInfoOwnerFallback(item) {
+            const sourceType = item?.source_type || item?.type;
+            if (sourceType === 'resource') return 'Resource Lorebook';
+            if (sourceType === 'embedded') return 'Embedded Lorebook';
+            return 'Global Lorebook';
+        },
+
+        getWorldInfoTagPlaceholder(_item) {
+            return '标签待接入';
+        },
+
+        getWorldInfoNoteState(item) {
+            return this.worldInfoHasLocalNote(item) ? '有备注' : '无备注';
+        },
+
         formatCategoryLabel(category) {
             const raw = String(category || '').trim();
             if (!raw) return '根目录';

@@ -2005,6 +2005,24 @@ def test_worldinfo_grid_template_supports_flip_note_preview_and_note_actions():
     assert 'openWorldInfoLocalNote(item)' in wi_grid_template
 
 
+def test_worldinfo_grid_template_uses_info_card_front_layout():
+    wi_grid_template = read_project_file('templates/components/grid_wi.html')
+
+    assert 'wi-card-header' in wi_grid_template
+    assert 'wi-card-primary' in wi_grid_template
+    assert 'wi-card-owner-row' in wi_grid_template
+    assert 'wi-card-tag-placeholder' in wi_grid_template
+    assert '标签待接入' in wi_grid_template or 'getWorldInfoTagPlaceholder(item)' in wi_grid_template
+
+
+def test_worldinfo_grid_template_uses_back_note_reading_layout():
+    wi_grid_template = read_project_file('templates/components/grid_wi.html')
+
+    assert 'wi-card-back-note-wrap' in wi_grid_template
+    assert 'wi-card-back-meta' in wi_grid_template
+    assert 'card-bottom-toolbar wi-card-bottom-toolbar' not in wi_grid_template
+
+
 def test_worldinfo_detail_template_includes_local_note_editor_actions():
     wi_detail_template = read_project_file('templates/modals/detail_wi_popup.html')
 
@@ -2105,6 +2123,14 @@ def test_worldinfo_grid_js_syncs_local_note_updates_without_waiting_for_refetch(
     assert 'item.id !== detail.id' in wi_grid_source or 'item.id === detail.id' in wi_grid_source
     assert "item.ui_summary = detail.ui_summary || ''" in wi_grid_source
     assert 'this.wiList = currentItems;' in wi_grid_source
+
+
+def test_worldinfo_grid_js_exposes_redesign_display_helpers():
+    wi_grid_source = read_project_file('static/js/components/wiGrid.js')
+
+    assert 'getWorldInfoRenderKey(item)' in wi_grid_source
+    assert 'getWorldInfoTagPlaceholder(' in wi_grid_source
+    assert 'getWorldInfoNoteState(' in wi_grid_source
 
 
 def test_preset_grid_js_uses_category_metadata_and_explicit_upload_fallback_contract():
