@@ -25,13 +25,7 @@
           </div>
           <button
             @click="requestCloseTagFilterEditor()"
-            style="
-              color: var(--text-dim);
-              font-size: 1.25rem;
-              background: none;
-              border: none;
-              cursor: pointer;
-            "
+            class="tag-filter-mobile-close-btn"
           >
             ✕
           </button>
@@ -562,10 +556,53 @@
           </div>
         </div>
         <div class="tag-filter-mobile-bottombar">
-          <span x-show="mobileActiveTab === 'filter'">筛选面板</span>
-          <span x-show="mobileActiveTab === 'sort'">排序面板</span>
-          <span x-show="mobileActiveTab === 'delete'">删除面板</span>
-          <span x-show="mobileActiveTab === 'category'">分类面板</span>
+          <div
+            x-show="mobileActiveTab === 'filter'"
+            class="tag-filter-mobile-bottombar-info"
+          >
+            <span class="tag-filter-mobile-bottombar-title">筛选面板</span>
+            <span
+              class="tag-filter-mobile-bottombar-meta"
+              x-text="`包含 ${filterTags.length} · 排除 ${excludedTags.length}`"
+            ></span>
+          </div>
+          <div
+            x-show="mobileActiveTab === 'sort'"
+            class="tag-filter-mobile-bottombar-info"
+          >
+            <span class="tag-filter-mobile-bottombar-title">排序面板</span>
+            <span
+              class="tag-filter-mobile-bottombar-meta"
+              x-text="`待排序 ${sortModeTagsPool.length}`"
+            ></span>
+          </div>
+          <div
+            x-show="mobileActiveTab === 'delete'"
+            class="tag-filter-mobile-bottombar-info"
+          >
+            <span class="tag-filter-mobile-bottombar-title">删除面板</span>
+            <span
+              class="tag-filter-mobile-bottombar-meta"
+              x-text="`待删除 ${selectedTagsForDeletion.length}`"
+            ></span>
+          </div>
+          <div
+            x-show="mobileActiveTab === 'category'"
+            class="tag-filter-mobile-bottombar-info"
+          >
+            <span class="tag-filter-mobile-bottombar-title">分类面板</span>
+            <span
+              class="tag-filter-mobile-bottombar-meta"
+              x-text="`已选择 ${categorySelectionCount}`"
+            ></span>
+          </div>
+          <button
+            type="button"
+            x-show="mobileActiveTab === 'filter' && (filterTags.length > 0 || excludedTags.length > 0)"
+            @click="clearTagFilters()"
+          >
+            清空筛选
+          </button>
           <button
             type="button"
             x-show="mobileActiveTab === 'sort' && isSortMode"

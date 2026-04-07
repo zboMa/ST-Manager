@@ -1872,6 +1872,23 @@ html.light-mode .wi-card-back {
 }
 
 @media (max-width: 768px) {
+  .wi-grid-card {
+    min-height: 14.5rem;
+  }
+  .wi-grid-card .card-flip-inner {
+    min-height: inherit;
+  }
+  #wi-scroll-area + .pagination-bar {
+    padding: 0.45rem 0.75rem;
+    gap: 0.45rem;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  #wi-scroll-area + .pagination-bar .card-pagination-summary {
+    width: 100%;
+    justify-content: space-between;
+    gap: 0.4rem;
+  }
   .wi-card-front {
     padding: var(--wi-card-page-inset-y) var(--wi-card-page-inset-x);
     gap: 0.56rem;
