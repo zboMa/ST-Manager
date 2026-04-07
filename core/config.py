@@ -81,6 +81,12 @@ DEFAULT_CONFIG = {
     # PNG 元数据是否使用确定性排序（默认关闭，避免改变外部工具的字节级行为）
     "png_deterministic_sort": False,
 
+    # 索引查询灰度开关
+    "cards_list_use_index": False,
+    "fast_search_use_index": False,
+    "worldinfo_list_use_index": False,
+    "index_auto_bootstrap": True,
+
     # 允许访问的绝对资源目录白名单（仅影响资源文件列表接口）
     # 例: ["D:/SillyTavern/assets", "E:/resources"]
     "allowed_abs_resource_roots": [],

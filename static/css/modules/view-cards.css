@@ -82,6 +82,12 @@
   z-index: var(--z-base);
 }
 
+.card-grid-virtual-spacer {
+  width: 100%;
+  grid-column: 1 / -1;
+  pointer-events: none;
+}
+
 .card-tag {
   font-size: 10px;
   background: var(--bg-sub);

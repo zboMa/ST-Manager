@@ -13,6 +13,7 @@ from core.auth import init_auth
 
 # === 数据与服务 ===
 from core.data.db_session import init_database, close_connection, backfill_wi_metadata
+from core.services.index_service import start_index_service
 from core.services.scan_service import start_background_scanner
 
 # === API 蓝图 ===
@@ -118,7 +119,10 @@ def init_services():
         # 4. 启动文件系统扫描器
         # 负责监听文件变动并同步到数据库
         start_background_scanner()
-        
+
+        # 5. 启动索引服务
+        start_index_service()
+
         # 初始化完成
         ctx.set_status(status="ready", message="服务已就绪")
         print("✅ 后台服务启动完成")

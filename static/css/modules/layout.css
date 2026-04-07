@@ -1691,6 +1691,20 @@ html.light-mode .header-favorite-btn.is-excluded .header-favorite-icon::after {
     gap: 0.5rem;
     width: 100%;
   }
+  .mobile-header-search-row {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+  }
+  .mobile-header-search-tools {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+    width: 100%;
+  }
   .mobile-header-left {
     display: flex;
     align-items: center;
@@ -1798,6 +1812,17 @@ html.light-mode .header-favorite-btn.is-excluded .header-favorite-icon::after {
   }
   .mobile-menu-btn-compact:active {
     background-color: var(--bg-hover);
+  }
+  .mobile-search-mode-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    width: auto;
+    flex: none;
+  }
+  .mobile-search-mode-row {
+    width: 100%;
+    display: flex;
   }
   .mobile-filter-bar {
     display: flex;
@@ -2143,6 +2168,20 @@ html.light-mode .header-favorite-btn.is-excluded .header-favorite-icon::after {
   .sidebar-tag-chip {
     font-size: 0.6875rem;
     padding: 0.125rem 0.375rem;
+  }
+  .mobile-search-mode-toggle button {
+    flex: 1;
+    height: 32px;
+    border-radius: 6px;
+    border: 1px solid var(--border-light);
+    background-color: var(--bg-sub);
+    color: var(--text-main);
+    font-size: 0.8125rem;
+  }
+  .mobile-search-mode-toggle button.is-active {
+    border-color: var(--accent-main);
+    background-color: var(--accent-faint);
+    color: var(--accent-main);
   }
   .sidebar-mobile .card-sidebar-shell {
     flex: 1 1 auto;

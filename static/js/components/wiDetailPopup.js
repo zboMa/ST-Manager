@@ -7,6 +7,7 @@ import { wiHelpers } from "../utils/wiHelpers.js";
 import {
   deleteWorldInfo,
   getWorldInfoDetail,
+  searchWorldInfoDetail,
   saveWorldInfoNote,
 } from "../api/wi.js";
 import { getCardDetail, updateCard } from "../api/card.js";
@@ -37,9 +38,14 @@ export default function wiDetailPopup() {
     previewLimit: 0,
     isContentTruncated: false,
     previewContentLimit: 0,
+    tocRenderLimit: 120,
+    readerRenderLimit: 80,
 
     // 搜索过滤
     searchTerm: "",
+    searchMatchedEntryIds: null,
+    searchRequestToken: 0,
+    loadRequestToken: 0,
     activeEntry: null,
 
     highlightEntryKey: null, // 用于滚动定位后的短暂高亮
@@ -111,23 +117,27 @@ export default function wiDetailPopup() {
           this.activeWiNoteDraft = detail.ui_summary || "";
         }
       });
+
+      this.$watch("searchTerm", () => {
+        this.resetEntryRenderLimits();
+        this.runDetailSearch();
+      });
+
+      this.$watch("uiFilter", () => {
+        this.resetEntryRenderLimits();
+      });
+
+      this.$watch("uiStrategy", () => {
+        this.resetEntryRenderLimits();
+      });
     },
 
     // === 计算属性 ===
 
     get filteredEntries() {
       if (!this.searchTerm) return this.wiEntries;
-      const lower = this.searchTerm.toLowerCase();
-      return this.wiEntries.filter((e) => {
-        const keys = Array.isArray(e.keys) ? e.keys.join(" ") : e.keys || "";
-        const content = e.content || "";
-        const comment = e.comment || "";
-        return (
-          keys.toLowerCase().includes(lower) ||
-          content.toLowerCase().includes(lower) ||
-          comment.toLowerCase().includes(lower)
-        );
-      });
+      if (!this.searchMatchedEntryIds) return [];
+      return this.wiEntries.filter((e) => this.searchMatchedEntryIds.has(e.id));
     },
 
     get uiFilteredEntries() {
@@ -147,6 +157,14 @@ export default function wiDetailPopup() {
       return arr;
     },
 
+    get visibleTocEntries() {
+      return (this.uiFilteredEntries || []).slice(0, this.tocRenderLimit);
+    },
+
+    get visibleReaderEntries() {
+      return (this.uiFilteredEntries || []).slice(0, this.readerRenderLimit);
+    },
+
     // 格式化时间戳
     formatDate(timestamp) {
       if (!timestamp) return "";
@@ -157,10 +175,30 @@ export default function wiDetailPopup() {
       return getTotalWiTokens(this.wiEntries);
     },
 
+    resetEntryRenderLimits() {
+      this.tocRenderLimit = 120;
+      this.readerRenderLimit = 80;
+    },
+
+    loadMoreReaderEntries() {
+      this.readerRenderLimit += 80;
+    },
+
+    loadMoreTocEntries() {
+      this.tocRenderLimit += 120;
+    },
+
     // 选中某个条目查看详情
     selectEntry(entry, shouldScroll = false) {
       this.activeEntry = entry;
       if (shouldScroll) {
+        const visibleIndex = (this.uiFilteredEntries || []).indexOf(entry);
+        if (visibleIndex >= this.readerRenderLimit) {
+          this.readerRenderLimit = Math.max(
+            this.readerRenderLimit,
+            visibleIndex + 1,
+          );
+        }
         this.$nextTick(() => this.scrollToEntry(entry));
       }
     },
@@ -191,6 +229,33 @@ export default function wiDetailPopup() {
       }, 900);
     },
 
+    _buildClientSearchMatchSet(query) {
+      const normalizedQuery = String(query || "")
+        .trim()
+        .toLowerCase();
+      if (!normalizedQuery) return null;
+
+      const matches = new Set();
+      for (const entry of this.wiEntries || []) {
+        const haystacks = [
+          entry?.comment,
+          entry?.content,
+          formatWiKeys(entry?.keys),
+          formatWiKeys(entry?.secondary_keys),
+        ];
+        if (
+          haystacks.some(
+            (value) =>
+              typeof value === "string" &&
+              value.toLowerCase().includes(normalizedQuery),
+          )
+        ) {
+          matches.add(entry.id);
+        }
+      }
+      return matches;
+    },
+
     async loadContent(targetId) {
       // 防抖检查
       if (
@@ -199,6 +264,7 @@ export default function wiDetailPopup() {
       )
         return;
 
+      const loadToken = ++this.loadRequestToken;
       this.isLoading = true; // 确保加载状态
 
       try {
@@ -214,8 +280,17 @@ export default function wiDetailPopup() {
             wi_preview_entry_max_chars: entryContentLimit,
           });
           if (res.success && res.card) {
+            if (loadToken !== this.loadRequestToken) return;
+            if (targetId && this.activeWiDetail.id !== targetId) return;
             rawData = res.card.character_book;
             this.description = res.card.description || "";
+            this.activeWiDetail = {
+              ...this.activeWiDetail,
+              source_revision:
+                res.card?.source_revision ||
+                this.activeWiDetail?.source_revision ||
+                "",
+            };
             if (res.card.wi_preview) {
               embeddedPreviewApplied = true;
               const preview = res.card.wi_preview;
@@ -245,9 +320,15 @@ export default function wiDetailPopup() {
             preview_limit: previewLimit,
           });
           if (res.success) {
+            if (loadToken !== this.loadRequestToken) return;
+            if (targetId && this.activeWiDetail.id !== targetId) return;
             rawData = res.data;
             this.activeWiDetail = {
               ...this.activeWiDetail,
+              source_revision:
+                res.source_revision ||
+                this.activeWiDetail?.source_revision ||
+                "",
               ui_summary:
                 res.ui_summary || this.activeWiDetail?.ui_summary || "",
             };
@@ -315,17 +396,25 @@ export default function wiDetailPopup() {
 
           // 一次性赋值，触发更新
           this.wiEntries = processedEntries;
+          this.searchMatchedEntryIds = null;
+          this.resetEntryRenderLimits();
+          void this.runDetailSearch();
 
           if (book.description) this.description = book.description;
         } else {
           this.wiEntries = [];
+          this.searchMatchedEntryIds = null;
+          this.resetEntryRenderLimits();
         }
       } catch (err) {
+        if (loadToken !== this.loadRequestToken) return;
         console.error("Failed to load WI detail:", err);
         this.wiEntries = [];
       } finally {
+        if (loadToken !== this.loadRequestToken) return;
         // 稍微延迟关闭 loading，让 DOM 有时间渲染
         setTimeout(() => {
+          if (loadToken !== this.loadRequestToken) return;
           this.isLoading = false;
         }, 50);
       }
@@ -417,9 +506,12 @@ export default function wiDetailPopup() {
       };
     },
 
-    async loadFullContent() {
+    async loadFullContent(options = {}) {
       if (!this.activeWiDetail) return;
 
+      const rerunSearch = options.rerunSearch !== false;
+      const targetId = this.activeWiDetail.id;
+      const loadToken = ++this.loadRequestToken;
       this.isLoading = true;
       try {
         let res = null;
@@ -436,6 +528,18 @@ export default function wiDetailPopup() {
           });
         }
         if (res.success) {
+          if (loadToken !== this.loadRequestToken) return;
+          if (!this.activeWiDetail || this.activeWiDetail.id !== targetId)
+            return;
+          this.activeWiDetail = {
+            ...this.activeWiDetail,
+            source_revision:
+              res.card?.source_revision ||
+              res.source_revision ||
+              this.activeWiDetail?.source_revision ||
+              "",
+            ui_summary: res.ui_summary || this.activeWiDetail?.ui_summary || "",
+          };
           const rawData =
             this.activeWiDetail.type === "embedded"
               ? res.card
@@ -454,19 +558,81 @@ export default function wiDetailPopup() {
             return newEntry;
           });
           this.wiEntries = processedEntries;
+          this.searchMatchedEntryIds = null;
+          this.resetEntryRenderLimits();
           this.isTruncated = false;
           this.totalEntries = 0;
           this.previewLimit = 0;
           this.isContentTruncated = false;
           this.previewContentLimit = 0;
           if (book.description) this.description = book.description;
+          if (rerunSearch) {
+            void this.runDetailSearch();
+          }
         }
       } catch (err) {
+        if (loadToken !== this.loadRequestToken) return;
         console.error("Failed to load full WI detail:", err);
       } finally {
+        if (loadToken !== this.loadRequestToken) return;
         setTimeout(() => {
+          if (loadToken !== this.loadRequestToken) return;
           this.isLoading = false;
         }, 50);
+      }
+    },
+
+    async runDetailSearch(query) {
+      const normalizedQuery = (query ?? this.searchTerm ?? "").trim();
+      const token = ++this.searchRequestToken;
+
+      if (!normalizedQuery) {
+        this.searchMatchedEntryIds = null;
+        return;
+      }
+
+      if (!this.wiData) {
+        this.searchMatchedEntryIds = new Set();
+        return;
+      }
+
+      const shouldUseBackendSearch =
+        (this.wiEntries || []).length >= 500 ||
+        (this.isTruncated && this.totalEntries >= 500);
+
+      if (!shouldUseBackendSearch) {
+        this.searchMatchedEntryIds =
+          this._buildClientSearchMatchSet(normalizedQuery);
+        return;
+      }
+
+      if (this.isTruncated && this.totalEntries >= 500) {
+        await this.loadFullContent({ rerunSearch: false });
+        if (token !== this.searchRequestToken) return;
+      }
+
+      try {
+        const detailSearchPayload = {
+          query: this.searchTerm,
+          data: this.wiData,
+        };
+        detailSearchPayload.query = normalizedQuery;
+        const res = await searchWorldInfoDetail({
+          ...detailSearchPayload,
+        });
+        if (token !== this.searchRequestToken) return;
+        if (!res?.success || !Array.isArray(res.items)) {
+          this.searchMatchedEntryIds = new Set();
+          return;
+        }
+        this.searchMatchedEntryIds = new Set(
+          res.items
+            .map((item) => Number(item?.index))
+            .filter((index) => Number.isInteger(index)),
+        );
+      } catch (_err) {
+        if (token !== this.searchRequestToken) return;
+        this.searchMatchedEntryIds = new Set();
       }
     },
 
@@ -496,6 +662,7 @@ export default function wiDetailPopup() {
         ui_summary: summary,
         source_link: "",
         resource_folder: "",
+        source_revision: this.activeWiDetail?.source_revision || "",
         ui_only: true,
       };
     },
@@ -534,6 +701,10 @@ export default function wiDetailPopup() {
         }
         const nextSummary =
           res?.updated_card?.ui_summary || res?.ui_summary || "";
+        this.activeWiDetail.source_revision =
+          res?.updated_card?.source_revision ||
+          this.activeWiDetail.source_revision ||
+          "";
         this.activeWiNoteDraft = nextSummary;
         this.emitWorldInfoNoteUpdated(nextSummary);
         this.$store.global.showToast(

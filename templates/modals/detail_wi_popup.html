@@ -344,7 +344,7 @@
 
           <div class="space-y-1">
             <template
-              x-for="(entry, idx) in uiFilteredEntries"
+              x-for="(entry, idx) in visibleTocEntries"
               :key="entry.id || idx"
             >
               <button
@@ -373,6 +373,18 @@
               class="text-center py-8 text-[var(--text-dim)] text-xs"
             >
               无匹配条目
+            </div>
+
+            <div
+              x-show="visibleTocEntries.length < uiFilteredEntries.length"
+              class="pt-2"
+            >
+              <button
+                @click="loadMoreTocEntries()"
+                class="wi-filter-chip mt-2 w-full"
+              >
+                加载更多目录
+              </button>
             </div>
           </div>
         </div>
@@ -470,13 +482,13 @@
 
           <div x-show="!isLoading" class="p-4 space-y-3">
             <template
-              x-for="(entry, idx) in uiFilteredEntries"
+              x-for="(entry, idx) in visibleReaderEntries"
               :key="entry.id || idx"
             >
               <article
-                :id="'wi-reader-entry-' + (entry.id || (entry.insertion_order ?? 'x') + '-' + idx)"
+                :id="'wi-reader-entry-' + (entry.id ?? ((entry.insertion_order ?? 'x') + '-' + idx))"
                 class="wi-reader-entry group"
-                :class="{'active': activeEntry === entry,'toc-flash': highlightEntryKey && (highlightEntryKey === (entry.id || (entry.insertion_order ?? 'x') + '-' + idx))}"
+                :class="{'active': activeEntry === entry,'toc-flash': highlightEntryKey !== null && highlightEntryKey !== undefined && (highlightEntryKey === (entry.id ?? ((entry.insertion_order ?? 'x') + '-' + idx)))}"
                 :data-status="entry.constant ? 'constant' : (entry.vectorized ? 'vector' : (entry.enabled ? 'normal' : 'disabled'))"
                 @click="selectEntry(entry, true)"
                 @dblclick="enterWiEditorFromDetail(entry)"
@@ -547,6 +559,18 @@
             >
               <div class="text-4xl grayscale mb-2">🍃</div>
               <p class="text-sm">没有找到相关条目</p>
+            </div>
+
+            <div
+              x-show="visibleReaderEntries.length < uiFilteredEntries.length"
+              class="pt-2"
+            >
+              <button
+                @click="loadMoreReaderEntries()"
+                class="wi-filter-chip mt-4 w-full"
+              >
+                加载更多正文
+              </button>
             </div>
           </div>
         </div>

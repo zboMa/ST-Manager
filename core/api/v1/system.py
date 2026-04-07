@@ -23,6 +23,7 @@ from core.consts import SIDECAR_EXTENSIONS, RESERVED_RESOURCE_NAMES
 from core.services.scan_service import request_scan, suppress_fs_events
 from core.services.cache_service import schedule_reload, invalidate_wi_list_cache, update_card_cache
 from core.services.card_service import resolve_ui_key
+from core.services.index_service import get_index_status, request_index_rebuild
 from core.services.st_client import refresh_st_client
 from core.services.st_auth import STAuthError, build_st_http_client
 
@@ -163,6 +164,22 @@ def _is_valid_lorebook_path(path: str) -> bool:
 @bp.route('/api/status')
 def api_status():
     return jsonify(ctx.init_status)
+
+
+@bp.route('/api/index/status')
+def api_index_status():
+    return jsonify({'success': True, 'status': get_index_status()})
+
+
+@bp.route('/api/index/rebuild', methods=['POST'])
+def api_index_rebuild():
+    payload = request.get_json(silent=True) or {}
+    scope = str(payload.get('scope') or 'cards').strip() or 'cards'
+    try:
+        request_index_rebuild(scope)
+    except ValueError as exc:
+        return jsonify({'success': False, 'msg': str(exc), 'scope': scope}), 400
+    return jsonify({'success': True, 'scope': scope})
 
 @bp.route('/api/scan_now', methods=['POST'])
 def api_scan_now():

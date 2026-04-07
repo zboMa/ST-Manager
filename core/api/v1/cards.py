@@ -45,6 +45,8 @@ from core.consts import SIDECAR_EXTENSIONS
 # === 核心服务 ===
 from core.services.scan_service import suppress_fs_events
 from core.services.cache_service import schedule_reload, force_reload, update_card_cache
+from core.services.index_service import enqueue_index_job
+from core.services.card_index_query_service import query_indexed_cards
 from core.services.card_service import update_card_content, rename_folder_in_db, rename_folder_in_ui, resolve_ui_key, swap_skin_to_cover
 from core.services.tag_management_service import build_governance_feedback, build_known_tag_set, filter_governed_tags
 from core.services.automation_service import (
@@ -68,6 +70,7 @@ from core.utils.filesystem import safe_move_to_trash, is_card_file, sanitize_fil
 from core.utils.hash import get_file_hash_and_size
 from core.utils.text import calculate_token_count
 from core.utils.data import get_wi_meta, normalize_card_v3, deterministic_sort
+from core.utils.source_revision import build_file_source_revision
 
 logger = logging.getLogger(__name__)
 
@@ -469,6 +472,113 @@ def _parse_optional_int_filter(param_name: str):
         raise ValueError(f'{param_name} 必须是整数') from exc
 
 
+def _can_use_indexed_list_cards(
+    *,
+    category,
+    search_scope,
+    search_type,
+    sort_mode,
+    is_recursive,
+    excluded_cats_param,
+    fav_first,
+    import_date_from,
+    import_date_to,
+    modified_date_from,
+    modified_date_to,
+    isolated_paths,
+):
+    if isolated_paths:
+        return False
+
+    if search_scope in ('full', 'all_dirs') and category and category != '根目录':
+        return False
+
+    if search_scope == 'current' and not is_recursive:
+        return False
+
+    if search_type != 'mix':
+        return False
+
+    if sort_mode != 'date_desc':
+        return False
+
+    if excluded_cats_param or fav_first:
+        return False
+
+    if any(value is not None for value in (
+        import_date_from,
+        import_date_to,
+        modified_date_from,
+        modified_date_to,
+    )):
+        return False
+
+    return True
+
+
+def _serialize_all_folders(visible_folders):
+    safe_folders = [f for f in visible_folders if f]
+    return [f['path'] for f in sorted([{'path': p} for p in safe_folders], key=lambda x: x['path'])]
+
+
+def _build_list_cards_tag_metadata(candidates, ui_data_for_order):
+    sidebar_tags_set = set()
+    for card in candidates:
+        for tag in card.get('tags', []):
+            sidebar_tags_set.add(tag)
+
+    persisted_tag_order = _get_tag_order(ui_data_for_order)
+    use_custom_tag_order = _is_tag_order_enabled(ui_data_for_order)
+
+    if use_custom_tag_order:
+        sidebar_tags = _apply_tag_order(list(sidebar_tags_set), persisted_tag_order)
+        global_tags = _apply_tag_order(ctx.cache.global_tags or [], persisted_tag_order)
+    else:
+        sidebar_tags = sorted(list(sidebar_tags_set), key=lambda x: str(x).lower())
+        global_tags = sorted(list(ctx.cache.global_tags or []), key=lambda x: str(x).lower())
+
+    tag_taxonomy = get_tag_taxonomy(ui_data_for_order)
+    sidebar_tag_groups = _build_tag_groups(sidebar_tags, tag_taxonomy)
+    global_tag_groups = _build_tag_groups(global_tags, tag_taxonomy)
+
+    return {
+        'global_tags': global_tags,
+        'sidebar_tags': sidebar_tags,
+        'tag_taxonomy': tag_taxonomy,
+        'global_tag_groups': global_tag_groups,
+        'sidebar_tag_groups': sidebar_tag_groups,
+    }
+
+
+def _collect_list_cards_metadata_candidates(cards, category, search_scope, is_recursive, isolated_paths):
+    candidates = list(cards)
+
+    if search_scope == 'current':
+        if category and category != '根目录':
+            target_cat_lower = category.lower()
+            target_cat_prefix = target_cat_lower + '/'
+
+            if is_recursive:
+                candidates = [
+                    c for c in candidates
+                    if c['category'].lower() == target_cat_lower or c['category'].lower().startswith(target_cat_prefix)
+                ]
+            else:
+                candidates = [c for c in candidates if c['category'].lower() == target_cat_lower]
+        else:
+            if not is_recursive:
+                candidates = [c for c in candidates if c['category'] == '']
+
+    if isolated_paths:
+        current_category = _normalize_rel_category_path(category)
+        candidates = [
+            c for c in candidates
+            if not _should_hide_card_from_view(c.get('category', ''), current_category, isolated_paths)
+        ]
+
+    return candidates
+
+
 def _sort_cards_inplace(cards_list, sort_mode: str):
     mode = _normalize_sort_mode(sort_mode)
     reverse = mode.endswith('_desc')
@@ -597,6 +707,9 @@ def api_list_cards():
     tags_param = request.args.get('tags', '')
     excluded_tags_param = request.args.get('excluded_tags', '')
     search = request.args.get('search', '').lower().strip()
+    search_mode = request.args.get('search_mode', 'fast').strip().lower()
+    if search_mode not in ('fast', 'fulltext'):
+        search_mode = 'fast'
     search_type = request.args.get('search_type', 'mix')
     search_scope = request.args.get('search_scope', 'current')
     if search_scope not in ('current', 'all_dirs', 'full'):
@@ -624,13 +737,70 @@ def api_list_cards():
     if token_min is not None and token_max is not None and token_min > token_max:
         return jsonify({'success': False, 'msg': 'token_min 不能大于 token_max'}), 400
 
+    cfg = load_config()
+    ui_data_for_order = load_ui_data()
+    isolated_categories = get_isolated_categories(ui_data_for_order)
+    isolated_paths = isolated_categories.get('paths') or []
+    use_index = bool(cfg.get('cards_list_use_index', False))
+    use_index_for_search = bool(cfg.get('fast_search_use_index', False))
+    if search:
+        use_index = use_index and use_index_for_search
+    if use_index and _can_use_indexed_list_cards(
+        category=category,
+        search_scope=search_scope,
+        search_type=search_type,
+        sort_mode=sort_mode,
+        is_recursive=is_recursive,
+        excluded_cats_param=excluded_cats_param,
+        fav_first=fav_first,
+        import_date_from=import_date_from,
+        import_date_to=import_date_to,
+        modified_date_from=modified_date_from,
+        modified_date_to=modified_date_to,
+        isolated_paths=isolated_paths,
+    ):
+        indexed = query_indexed_cards({
+            'page': page,
+            'page_size': page_size,
+            'category': current_category,
+            'search': search,
+            'search_mode': search_mode,
+            'search_scope': search_scope,
+            'fav_filter': fav_filter,
+            'include_tags': [t.strip() for t in tags_param.split('|||') if t.strip()],
+            'exclude_tags': [t.strip() for t in excluded_tags_param.split('|||') if t.strip()],
+            'token_min': token_min,
+            'token_max': token_max,
+            'db_path': DEFAULT_DB_PATH,
+        })
+        metadata_candidates = _collect_list_cards_metadata_candidates(
+            getattr(ctx.cache, 'cards', []) or [],
+            category,
+            search_scope,
+            is_recursive,
+            isolated_paths,
+        )
+        tag_metadata = _build_list_cards_tag_metadata(metadata_candidates, ui_data_for_order)
+        return jsonify({
+            'cards': indexed['cards'],
+            'global_tags': tag_metadata['global_tags'],
+            'sidebar_tags': tag_metadata['sidebar_tags'],
+            'isolated_categories': isolated_categories,
+            'tag_taxonomy': tag_metadata['tag_taxonomy'],
+            'global_tag_groups': tag_metadata['global_tag_groups'],
+            'sidebar_tag_groups': tag_metadata['sidebar_tag_groups'],
+            'all_folders': _serialize_all_folders(getattr(ctx.cache, 'visible_folders', []) or []),
+            'category_counts': dict(getattr(ctx.cache, 'category_counts', {}) or {}),
+            'total_count': indexed['total_count'],
+            'library_total': len(getattr(ctx.cache, 'cards', []) or []),
+            'page': page,
+            'page_size': page_size,
+        })
+
     # 1. 获取所有卡片, 浅拷贝
     with ctx.cache.lock:
         candidates = list(ctx.cache.cards)
     library_total = len(candidates)
-    ui_data_for_order = load_ui_data()
-    isolated_categories = get_isolated_categories(ui_data_for_order)
-    isolated_paths = isolated_categories.get('paths') or []
     
     # --- 全局目录排除逻辑 ---
     # full 模式下忽略所有筛选条件（只保留关键词搜索）
@@ -681,24 +851,7 @@ def api_list_cards():
 
     # === 在应用“搜索”和“标签”过滤之前，先计算当前分类下的标签池 ===
     # 这样标签池就只受“文件夹/分类”影响，而不会被“选中的标签”把自己给过滤没了
-    sidebar_tags_set = set()
-    for c in candidates:
-        for t in c['tags']:
-            sidebar_tags_set.add(t)
-
-    persisted_tag_order = _get_tag_order(ui_data_for_order)
-    use_custom_tag_order = _is_tag_order_enabled(ui_data_for_order)
-
-    if use_custom_tag_order:
-        sidebar_tags = _apply_tag_order(list(sidebar_tags_set), persisted_tag_order)
-        global_tags = _apply_tag_order(ctx.cache.global_tags or [], persisted_tag_order)
-    else:
-        sidebar_tags = sorted(list(sidebar_tags_set), key=lambda x: str(x).lower())
-        global_tags = sorted(list(ctx.cache.global_tags or []), key=lambda x: str(x).lower())
-
-    tag_taxonomy = get_tag_taxonomy(ui_data_for_order)
-    sidebar_tag_groups = _build_tag_groups(sidebar_tags, tag_taxonomy)
-    global_tag_groups = _build_tag_groups(global_tags, tag_taxonomy)
+    tag_metadata = _build_list_cards_tag_metadata(candidates, ui_data_for_order)
 
     if search_scope != 'full':
         if fav_filter == 'included':
@@ -790,17 +943,15 @@ def api_list_cards():
     paginated = filtered_cards[start:end]
 
     # 7. 返回结果
-    safe_folders = [f for f in ctx.cache.visible_folders if f]
-    
     return jsonify({
         "cards": paginated,
-        "global_tags": global_tags,
-        "sidebar_tags": sidebar_tags,
+        "global_tags": tag_metadata['global_tags'],
+        "sidebar_tags": tag_metadata['sidebar_tags'],
         "isolated_categories": isolated_categories,
-        "tag_taxonomy": tag_taxonomy,
-        "global_tag_groups": global_tag_groups,
-        "sidebar_tag_groups": sidebar_tag_groups,
-        "all_folders": [f['path'] for f in sorted([{'path': p} for p in safe_folders], key=lambda x: x['path'])],
+        "tag_taxonomy": tag_metadata['tag_taxonomy'],
+        "global_tag_groups": tag_metadata['global_tag_groups'],
+        "sidebar_tag_groups": tag_metadata['sidebar_tag_groups'],
+        "all_folders": _serialize_all_folders(ctx.cache.visible_folders),
         "category_counts": ctx.cache.category_counts,
         "total_count": total_count,
         "library_total": library_total,
@@ -1019,6 +1170,14 @@ def api_update_card():
             return jsonify({"success": False, "msg": "非法文件名"}), 400
         
         old_full_path = os.path.join(CARDS_FOLDER, card_id)
+        requested_revision = str(data.get('source_revision') or '').strip()
+        current_revision = build_file_source_revision(old_full_path)
+        if requested_revision and current_revision and requested_revision != current_revision:
+            return jsonify({
+                'success': False,
+                'msg': f'source_revision mismatch: expected {current_revision}',
+                'current_source_revision': current_revision,
+            }), 409
         
         # 检查是否需要移动/改名
         folder_path = os.path.dirname(old_full_path)
@@ -1236,9 +1395,11 @@ def api_update_card():
         
         if not info and os.path.exists(current_full_path):
              info = extract_card_info(current_full_path)
-            
+        
         # 更新 DB (Hash / Time)
-        update_card_cache(final_rel_path_id, current_full_path, parsed_info=info, mtime=current_mtime)
+        cache_updated = update_card_cache(final_rel_path_id, current_full_path, parsed_info=info, mtime=current_mtime)
+        if cache_updated:
+            enqueue_index_job('upsert_world_owner', entity_id=final_rel_path_id, source_path=current_full_path)
 
         if raw_id != final_rel_path_id:
             try:
@@ -1511,6 +1672,10 @@ def api_update_card():
                             final_return_obj['tags'] = list(existing_tags)
             except Exception as e:
                 logger.warning(f"链接更新后自动抓取论坛标签失败: {e}")
+
+        refreshed_source_revision = build_file_source_revision(current_full_path)
+        if final_return_obj is not None:
+            final_return_obj['source_revision'] = refreshed_source_revision
 
         return jsonify({
             "success": True,
@@ -2125,7 +2290,9 @@ def api_import_from_url():
             save_ui_data(ui_data)
         
         # === 6. 更新缓存与返回 ===
-        update_card_cache(rel_path, target_save_path)
+        cache_updated = update_card_cache(rel_path, target_save_path)
+        if cache_updated:
+            enqueue_index_job('upsert_world_owner', entity_id=rel_path, source_path=target_save_path)
         schedule_reload(reason="import_from_url")
 
         data_block = info.get('data', {}) if 'data' in info else info
@@ -2334,7 +2501,9 @@ def api_change_image():
             save_ui_data(ui_data_for_import_time)
         
         # 3. 更新数据库记录 (Upsert)
-        update_card_cache(final_id, target_save_path)
+        cache_updated = update_card_cache(final_id, target_save_path)
+        if cache_updated:
+            enqueue_index_job('upsert_world_owner', entity_id=final_id, source_path=target_save_path)
         
         # 4. [增量更新] 内存缓存
         # 我们需要构造一个符合 ctx.cache 格式的对象
@@ -3022,6 +3191,7 @@ def api_get_card_detail():
         # 2. 如果数据库没有 World Book 结构，或者为了确保最新，读取物理文件
         # 为了 V3 兼容性和 World Book，读文件是最稳妥的
         full_path = os.path.join(CARDS_FOLDER, card_id.replace('/', os.sep))
+        current_revision = build_file_source_revision(full_path)
         file_info = extract_card_info(full_path)
         
         if not file_info: return jsonify({"success": False})
@@ -3074,7 +3244,8 @@ def api_get_card_detail():
                 "creator": data_block.get('creator', ''),
                 "char_version": data_block.get('character_version', ''),
                 "image_url": f"/cards_file/{quote(card_id)}?t={mtime}",
-                "thumb_url": f"/api/thumbnail/{quote(card_id)}?t={mtime}"
+                "thumb_url": f"/api/thumbnail/{quote(card_id)}?t={mtime}",
+                "source_revision": current_revision,
             }
 
         # 预览模式：嵌入式世界书可能过大，按需截断
@@ -4313,7 +4484,9 @@ def api_upload_commit():
             if import_time_changed:
                 save_ui_data(ui_data)
             
-            update_card_cache(rel_id, dst_path, parsed_info=info, file_hash=final_hash, file_size=final_size, mtime=mtime)
+            cache_updated = update_card_cache(rel_id, dst_path, parsed_info=info, file_hash=final_hash, file_size=final_size, mtime=mtime)
+            if cache_updated:
+                enqueue_index_job('upsert_world_owner', entity_id=rel_id, source_path=dst_path)
             
             # 构建返回给前端的卡片对象
             if info:

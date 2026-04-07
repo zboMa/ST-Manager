@@ -239,6 +239,12 @@ html.light-mode .wi-status-constant {
   border-color: #6b7280;
 }
 
+.wi-grid-virtual-spacer {
+  width: 100%;
+  grid-column: 1 / -1;
+  pointer-events: none;
+}
+
 html.light-mode .wi-badge.global {
   background: #dbeafe;
   color: #1e40af;

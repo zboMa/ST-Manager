@@ -92,6 +92,7 @@ export default function detailModal() {
             ui_summary: "",
             source_link: "",
             resource_folder: "",
+            source_revision: "",
             character_book_raw: "" // 用于 JSON 编辑
         },
 
@@ -249,6 +250,7 @@ export default function detailModal() {
                 ui_summary: "",
                 source_link: "",
                 resource_folder: "",
+                source_revision: "",
                 character_book_raw: ""
             };
 
@@ -1082,6 +1084,7 @@ export default function detailModal() {
                     this.editingData.ui_summary = safeCard.ui_summary || "";
                     this.editingData.source_link = safeCard.source_link || "";
                     this.editingData.resource_folder = safeCard.resource_folder || "";
+                    this.editingData.source_revision = safeCard.source_revision || "";
                     this.editingData = this._normalizeEditingDataShape(this.editingData);
                     setActiveRuntimeContext({
                         card: {
@@ -1152,6 +1155,7 @@ export default function detailModal() {
                 ui_summary: this.editingData.ui_summary,
                 source_link: this.editingData.source_link,
                 resource_folder: this.editingData.resource_folder,
+                source_revision: this.editingData.source_revision || "",
 
                 // Bundle 标记
                 save_ui_to_bundle: this.activeCard.is_bundle,
@@ -1165,6 +1169,7 @@ export default function detailModal() {
             updateCard(payload).then(res => {
                 this.isSaving = false;
                 if (res.success) {
+                    this.editingData.source_revision = res.updated_card?.source_revision || this.editingData.source_revision || "";
                     // 更新基准
                     this.originalDataJson = JSON.stringify(this.editingData);
                     const ts = new Date().getTime();
@@ -1519,6 +1524,7 @@ export default function detailModal() {
                     this.editingData.ui_summary = c.ui_summary || "";
                     this.editingData.source_link = c.source_link || "";
                     this.editingData.resource_folder = c.resource_folder || "";
+                    this.editingData.source_revision = c.source_revision || this.editingData.source_revision || "";
                     this.editingData = this._normalizeEditingDataShape(this.editingData);
                 }
             });

@@ -15,6 +15,7 @@ import {
 
 import { batchUpdateTags } from "../api/system.js";
 import { formatDate, getCardGridTokenBadgeClass } from "../utils/format.js";
+import { buildWindowedGridState } from "../utils/windowing.js";
 
 export default function cardGrid() {
   return {
@@ -24,6 +25,13 @@ export default function cardGrid() {
     totalItems: 0,
     totalPages: 1,
     highlightId: null,
+    windowRange: {
+      startIndex: 0,
+      endIndex: 0,
+      topPadding: 0,
+      bottomPadding: 0,
+    },
+    cardRowHeight: 472,
 
     // 批量标签输入的临时状态
     batchTagInputAdd: "",
@@ -42,6 +50,7 @@ export default function cardGrid() {
     bulkBackMode: false,
     autoFlipBackDelayMs: 1800,
     _autoFlipBackTimers: {},
+    _syncCardWindowRangeHandler: null,
 
     get selectedIds() {
       return this.$store.global.viewState.selectedIds;
@@ -137,6 +146,10 @@ export default function cardGrid() {
       this.$watch("$store.global.itemsPerPage", () => {
         this.currentPage = 1;
         this.scheduleFetchCards("filters");
+      });
+      this.$watch("$store.global.cardSearchMode", () => {
+        this.currentPage = 1;
+        this.scheduleFetchCards("search-mode");
       });
 
       // 监听收藏过滤变化
@@ -307,6 +320,38 @@ export default function cardGrid() {
         // 使用当前 cardGrid 实例来处理上传，保证行为与拖拽一致
         this._uploadFilesInternal(files, targetCategory);
       };
+
+      this._syncCardWindowRangeHandler = () => {
+        this.syncCardWindowRange();
+      };
+      const scrollHost = document.getElementById("main-scroll");
+      if (scrollHost) {
+        scrollHost.addEventListener(
+          "scroll",
+          this._syncCardWindowRangeHandler,
+          {
+            passive: true,
+          },
+        );
+      }
+      window.addEventListener("resize", this._syncCardWindowRangeHandler);
+
+      this.$nextTick(() => {
+        this.syncCardWindowRange();
+      });
+    },
+
+    destroy() {
+      const scrollHost = document.getElementById("main-scroll");
+      if (scrollHost && this._syncCardWindowRangeHandler) {
+        scrollHost.removeEventListener(
+          "scroll",
+          this._syncCardWindowRangeHandler,
+        );
+      }
+      if (this._syncCardWindowRangeHandler) {
+        window.removeEventListener("resize", this._syncCardWindowRangeHandler);
+      }
     },
 
     // 统一处理增量更新 (插入/排序/去重)
@@ -323,6 +368,9 @@ export default function cardGrid() {
       // 2. 按当前排序规则插入
       this.insertCardSorted(card);
       this.syncCardUiState();
+      this.$nextTick(() => {
+        this.syncCardWindowRange();
+      });
 
       // 3. 更新 Tag 池
       if (card.tags) {
@@ -588,6 +636,60 @@ export default function cardGrid() {
       });
     },
 
+    get visibleCards() {
+      return this.cards.slice(
+        this.windowRange.startIndex,
+        this.windowRange.endIndex,
+      );
+    },
+
+    get virtualTopSpacerStyle() {
+      return `height:${this.windowRange.topPadding}px`;
+    },
+
+    get virtualBottomSpacerStyle() {
+      return `height:${this.windowRange.bottomPadding}px`;
+    },
+
+    syncCardWindowRange() {
+      const host = document.getElementById("main-scroll");
+      if (!host) return;
+      const grid = host.querySelector(".card-grid");
+      let columnCount = 0;
+      let rowHeight = this.cardRowHeight;
+
+      if (grid) {
+        const gridTemplateColumns =
+          window.getComputedStyle(grid).gridTemplateColumns;
+        if (gridTemplateColumns && gridTemplateColumns !== "none") {
+          columnCount = gridTemplateColumns
+            .split(" ")
+            .map((part) => part.trim())
+            .filter(Boolean).length;
+        }
+
+        const gridStyle = window.getComputedStyle(grid);
+        const firstCard = grid.querySelector(".st-card");
+        const gap = parseFloat(gridStyle.rowGap || gridStyle.gap || "0") || 0;
+        if (firstCard) {
+          rowHeight = Math.max(1, firstCard.offsetHeight + gap);
+        }
+      }
+
+      if (!columnCount) {
+        const width = host.clientWidth || window.innerWidth;
+        columnCount = Math.max(1, Math.floor(width / 224));
+      }
+
+      this.windowRange = buildWindowedGridState({
+        itemCount: this.cards.length,
+        columnCount,
+        rowHeight,
+        scrollTop: host.scrollTop,
+        viewportHeight: host.clientHeight,
+      });
+    },
+
     // === 核心数据加载 ===
     fetchCards() {
       const store = Alpine.store("global");
@@ -630,6 +732,7 @@ export default function cardGrid() {
         token_min: vs.tokenMin === "" ? "" : String(vs.tokenMin),
         token_max: vs.tokenMax === "" ? "" : String(vs.tokenMax),
         favorites_first: store.settingsForm.favorites_first,
+        search_mode: store.cardSearchMode || "fast",
       };
 
       listCards(params) // 调用 API 模块
@@ -667,6 +770,9 @@ export default function cardGrid() {
           this.totalPages = Math.ceil(this.totalItems / pageSize) || 1;
 
           store.isLoading = false;
+          this.$nextTick(() => {
+            this.syncCardWindowRange();
+          });
         })
         .catch((err) => {
           if (err && err.name !== "AbortError") console.error(err);
@@ -1173,6 +1279,9 @@ export default function cardGrid() {
           const deletedCount = oldLength - this.cards.length;
           this.totalItems -= deletedCount;
           this.syncCardUiState();
+          this.$nextTick(() => {
+            this.syncCardWindowRange();
+          });
           if (this.filterCategory === "" && !this.searchQuery) {
             this.$store.global.libraryTotal -= deletedCount;
           }

@@ -78,8 +78,12 @@
     </div>
 
     <div x-show="!isLoading" class="card-grid">
+      <div
+        class="card-grid-virtual-spacer card-grid-virtual-spacer--top"
+        :style="virtualTopSpacerStyle"
+      ></div>
       <template
-        x-for="card in paginatedCards"
+        x-for="card in visibleCards"
         :key="card.id"
         @click="selectedIds = []"
       >
@@ -320,6 +324,10 @@
           ></button>
         </div>
       </template>
+      <div
+        class="card-grid-virtual-spacer card-grid-virtual-spacer--bottom"
+        :style="virtualBottomSpacerStyle"
+      ></div>
     </div>
 
     <div

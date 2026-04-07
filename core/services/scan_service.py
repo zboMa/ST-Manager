@@ -6,11 +6,12 @@ import json
 import logging
 
 # === 基础设施 ===
-from core.config import CARDS_FOLDER, DEFAULT_DB_PATH, current_config
+from core.config import CARDS_FOLDER, DEFAULT_DB_PATH, current_config, load_config
 from core.context import ctx
 
 # === 业务逻辑引用 ===
 from core.services.cache_service import schedule_reload
+from core.services.index_service import enqueue_index_job
 
 # === 工具函数 ===
 from core.utils.filesystem import is_card_file
@@ -19,6 +20,32 @@ from core.utils.text import calculate_token_count
 from core.utils.data import get_wi_meta, sanitize_for_utf8
 
 logger = logging.getLogger(__name__)
+
+
+def _normalize_watch_path(path):
+    return os.path.normcase(os.path.abspath(str(path or '')))
+
+
+def _is_worldinfo_watch_path(path):
+    cfg = load_config()
+    global_dir = _normalize_watch_path(cfg.get('world_info_dir'))
+    resources_dir = _normalize_watch_path(cfg.get('resources_dir'))
+    abs_path = _normalize_watch_path(path)
+
+    if not abs_path.lower().endswith('.json'):
+        return False
+
+    try:
+        if global_dir and os.path.commonpath([global_dir, abs_path]) == global_dir:
+            return True
+    except ValueError:
+        return False
+
+    rel = abs_path.replace('\\', '/').lower()
+    try:
+        return bool(resources_dir) and '/lorebooks/' in rel and os.path.commonpath([resources_dir, abs_path]) == resources_dir
+    except ValueError:
+        return False
 
 def suppress_fs_events(seconds: float = 1.5):
     """
@@ -67,6 +94,11 @@ def start_fs_watcher():
             # 本进程写文件期间抑制 watchdog
             if ctx.should_ignore_fs_event():
                 return
+
+            for candidate_path in (getattr(event, 'src_path', ''), getattr(event, 'dest_path', '')):
+                if _is_worldinfo_watch_path(candidate_path):
+                    enqueue_index_job('upsert_worldinfo_path', source_path=candidate_path)
+                    return
             
             # 过滤掉非关注文件类型，减少噪音
             if not is_card_file(event.src_path):
@@ -76,8 +108,16 @@ def start_fs_watcher():
             request_scan(reason=f"{event.event_type}:{os.path.basename(event.src_path)}")
 
     observer = Observer()
-    watch_path = os.fspath(CARDS_FOLDER)
-    observer.schedule(Handler(), watch_path, recursive=True)
+    handler = Handler()
+    watch_paths = [os.fspath(CARDS_FOLDER)]
+    cfg = load_config()
+    for candidate in (cfg.get('world_info_dir'), cfg.get('resources_dir')):
+        path = os.fspath(candidate) if candidate else ''
+        if path and path not in watch_paths:
+            watch_paths.append(path)
+
+    for watch_path in watch_paths:
+        observer.schedule(handler, watch_path, recursive=True)
     observer.daemon = True
     observer.start()
     logger.info("File system watcher (watchdog) started.")
@@ -257,6 +297,8 @@ def _perform_scan_logic():
 
         if changes_detected:
             conn.commit()
+            enqueue_index_job('rebuild_scope', payload={'scope': 'cards'})
+            enqueue_index_job('rebuild_scope', payload={'scope': 'worldinfo'})
             logger.info("Background scan detected changes. Updating cache...")
             schedule_reload(reason="background_scanner")
 

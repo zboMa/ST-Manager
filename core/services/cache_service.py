@@ -11,6 +11,7 @@ from core.config import CARDS_FOLDER, DEFAULT_DB_PATH
 from core.context import ctx
 from core.data.db_session import get_db, execute_with_retry
 from core.data.ui_store import load_ui_data
+from core.services.index_service import enqueue_index_job
 
 # === 工具函数 ===
 from core.utils.hash import get_file_hash_and_size
@@ -71,10 +72,11 @@ def update_card_cache(card_id, full_path, *, parsed_info=None, file_hash=None, f
         conn = get_db()
         cursor = conn.cursor()
 
-        # 获取收藏状态
-        cursor.execute("SELECT is_favorite FROM card_metadata WHERE id = ?", (card_id,))
+        # 获取收藏状态和历史 worldinfo 状态，用于补发索引刷新任务
+        cursor.execute("SELECT is_favorite, has_character_book FROM card_metadata WHERE id = ?", (card_id,))
         row = cursor.fetchone()
         current_fav = row['is_favorite'] if row else 0
+        previous_has_wi = bool(row['has_character_book']) if row else False
         
         if file_hash is None or file_size is None:
             file_hash, file_size = get_file_hash_and_size(full_path)
@@ -131,8 +133,17 @@ def update_card_cache(card_id, full_path, *, parsed_info=None, file_hash=None, f
             ))
             
             conn.commit()
+            try:
+                enqueue_index_job('upsert_card', entity_id=card_id, source_path=full_path)
+                if has_wi or previous_has_wi:
+                    enqueue_index_job('upsert_world_embedded', entity_id=card_id, source_path=full_path)
+            except Exception as e:
+                logger.error(f"Failed to enqueue index job for {card_id}: {e}")
+            return True
+        return False
     except Exception as e:
         logger.error(f"Failed to update DB cache for {card_id}: {e}")
+        return False
 
 def invalidate_wi_list_cache():
     """主动失效：解决 overwrite 保存不改目录mtime 的情况"""

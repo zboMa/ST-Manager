@@ -43,6 +43,8 @@ export default function wiEditor() {
     showWiSettings: true,
     isLoading: false,
     isSaving: false,
+    openWorldInfoEditorRequestToken: 0,
+    openWorldInfoFileRequestToken: 0,
 
     // 编辑器核心数据
     editingData: {
@@ -50,6 +52,7 @@ export default function wiEditor() {
       char_name: "",
       character_book: { name: "", entries: [] },
       extensions: { regex_scripts: [], tavern_helper: [] },
+      source_revision: "",
     },
 
     // 当前编辑的文件元数据 (用于保存路径)
@@ -1152,6 +1155,7 @@ export default function wiEditor() {
           currentFile.name || "World Info",
         );
         this.editingData.character_book = book;
+        this.editingWiFile.source_revision = res.source_revision || "";
         this._ensureEntryUids();
       }
 
@@ -1909,6 +1913,7 @@ export default function wiEditor() {
         ui_summary: this.editingData.ui_summary || "",
         source_link: this.editingData.source_link || "",
         resource_folder: this.editingData.resource_folder || "",
+        source_revision: this.editingData.source_revision || "",
 
         // 4. Bundle 状态透传 (保持包模式状态不丢失)
         save_ui_to_bundle: this.editingData.is_bundle,
@@ -1923,6 +1928,10 @@ export default function wiEditor() {
         .then((res) => {
           this.isSaving = false;
           if (res.success) {
+            this.editingData.source_revision =
+              res.updated_card?.source_revision ||
+              this.editingData.source_revision ||
+              "";
             if (withSnapshot) {
               this.$store.global.showToast("💾 已保存整本并生成回滚版本", 2200);
             } else {
@@ -1984,6 +1993,9 @@ export default function wiEditor() {
     // 打开编辑器 (适配三种来源: global, resource, embedded)
     openWorldInfoEditor(item) {
       this.isLoading = true;
+      const targetId = item.id;
+      const openRequestToken = ++this.openWorldInfoEditorRequestToken;
+      this.editingWiFile = item;
       this.initialSnapshotChecked = false;
       this.initialSnapshotInitPromise = null;
 
@@ -2001,8 +2013,14 @@ export default function wiEditor() {
         // 赋值给响应式对象
         this.editingData = dataObj;
         this.editingData.ui_summary =
-          item?.ui_summary || dataObj?.ui_summary || "";
-        this.editingWiFile = item;
+          this.editingWiFile?.ui_summary ||
+          item?.ui_summary ||
+          dataObj?.ui_summary ||
+          "";
+        this.editingWiFile = {
+          ...item,
+          ...(this.editingWiFile || {}),
+        };
         this._ensureEntryUids();
         let targetIndex = 0;
         if (typeof item.jumpToIndex === "number" && item.jumpToIndex >= 0) {
@@ -2069,6 +2087,10 @@ export default function wiEditor() {
         // 如果没有传递数据（兼容旧逻辑），从服务器加载
         getCardDetail(item.card_id)
           .then((res) => {
+            if (openRequestToken !== this.openWorldInfoEditorRequestToken)
+              return;
+            if (!this.editingWiFile || this.editingWiFile.id !== targetId)
+              return;
             if (res.success && res.card) {
               // 这是一个角色卡对象，character_book 在其中
               this.editingData = res.card;
@@ -2087,7 +2109,11 @@ export default function wiEditor() {
                 };
               }
 
-              this.editingWiFile = item;
+              this.editingWiFile = {
+                ...item,
+                source_revision:
+                  res.card?.source_revision || item.source_revision || "",
+              };
               this.currentWiIndex = 0;
               this.isEditingClipboard = false;
               this.currentClipboardIndex = -1;
@@ -2098,6 +2124,10 @@ export default function wiEditor() {
             }
           })
           .catch((e) => {
+            if (openRequestToken !== this.openWorldInfoEditorRequestToken)
+              return;
+            if (!this.editingWiFile || this.editingWiFile.id !== targetId)
+              return;
             this.isLoading = false;
             alert("加载失败: " + e);
           });
@@ -2111,12 +2141,21 @@ export default function wiEditor() {
           force_full: true,
         })
           .then((res) => {
+            if (openRequestToken !== this.openWorldInfoEditorRequestToken)
+              return;
+            if (!this.editingWiFile || this.editingWiFile.id !== targetId)
+              return;
             if (res.success) {
               // 归一化数据
               const bookData = normalizeWiBook(res.data, "");
               this.editingData.character_book = bookData;
 
-              this.editingWiFile = item;
+              this.editingWiFile = {
+                ...item,
+                source_revision:
+                  res.source_revision || item.source_revision || "",
+                ui_summary: res.ui_summary || item.ui_summary || "",
+              };
               this.currentWiIndex = 0;
               this.isEditingClipboard = false;
               this.currentClipboardIndex = -1;
@@ -2131,6 +2170,10 @@ export default function wiEditor() {
             }
           })
           .catch((e) => {
+            if (openRequestToken !== this.openWorldInfoEditorRequestToken)
+              return;
+            if (!this.editingWiFile || this.editingWiFile.id !== targetId)
+              return;
             this.isLoading = false;
             alert("加载失败: " + e);
           });
@@ -2140,6 +2183,10 @@ export default function wiEditor() {
     // 打开独立文件 (兼容接口)
     openWorldInfoFile(item) {
       this.isLoading = true;
+      const targetId = item.id;
+      this.editingWiFile = item;
+      this.openWorldInfoFileRequestToken += 1;
+      const requestToken = this.openWorldInfoFileRequestToken;
       this.initialSnapshotChecked = false;
       this.initialSnapshotInitPromise = null;
       getWorldInfoDetail({
@@ -2147,38 +2194,49 @@ export default function wiEditor() {
         source_type: item.source_type,
         file_path: item.file_path,
         force_full: true,
-      }).then((res) => {
-        this.isLoading = false;
-        if (res.success) {
-          // normalizeWiBook 会为每个条目分配索引 id（0,1,2,3...）
-          const book = normalizeWiBook(res.data, item.name || "World Info");
-          this.editingData.character_book = book;
-          this.editingData.ui_summary = res.ui_summary || item.ui_summary || "";
-          this.editingWiFile = item;
-          this._ensureEntryUids();
-          this.openFullScreenWI();
-          this.$nextTick(async () => {
-            if (this.initialSnapshotInitPromise) {
-              try {
-                await this.initialSnapshotInitPromise;
-              } catch (e) {
-                console.warn(
-                  "Init snapshot on enter failed before auto-save start:",
-                  e,
-                );
-              }
-            }
-            autoSaver.initBaseline(this.editingData);
-            autoSaver.start(
-              () => this.editingData,
-              () => this._getAutoSavePayload(),
-            );
-          });
-        } else {
+      })
+        .then((res) => {
+          if (requestToken !== this.openWorldInfoFileRequestToken) return;
+          if (!this.editingWiFile || this.editingWiFile.id !== targetId) return;
           this.isLoading = false;
-          alert(res.msg);
-        }
-      });
+          if (res.success) {
+            // normalizeWiBook 会为每个条目分配索引 id（0,1,2,3...）
+            const book = normalizeWiBook(res.data, item.name || "World Info");
+            this.editingData.character_book = book;
+            this.editingData.ui_summary =
+              res.ui_summary || item.ui_summary || "";
+            this.editingWiFile = item;
+            this.editingWiFile.source_revision = res.source_revision || "";
+            this._ensureEntryUids();
+            this.openFullScreenWI();
+            this.$nextTick(async () => {
+              if (this.initialSnapshotInitPromise) {
+                try {
+                  await this.initialSnapshotInitPromise;
+                } catch (e) {
+                  console.warn(
+                    "Init snapshot on enter failed before auto-save start:",
+                    e,
+                  );
+                }
+              }
+              autoSaver.initBaseline(this.editingData);
+              autoSaver.start(
+                () => this.editingData,
+                () => this._getAutoSavePayload(),
+              );
+            });
+          } else {
+            this.isLoading = false;
+            alert(res.msg);
+          }
+        })
+        .catch((e) => {
+          if (requestToken !== this.openWorldInfoFileRequestToken) return;
+          if (!this.editingWiFile || this.editingWiFile.id !== targetId) return;
+          this.isLoading = false;
+          alert("加载失败: " + e);
+        });
     },
 
     openFullScreenWI() {
@@ -2251,6 +2309,7 @@ export default function wiEditor() {
         ui_summary: summary,
         source_link: "",
         resource_folder: "",
+        source_revision: this.editingData.source_revision || "",
         ui_only: true,
       };
     },
@@ -2290,6 +2349,10 @@ export default function wiEditor() {
         }
         const nextSummary =
           res?.updated_card?.ui_summary || res?.ui_summary || "";
+        this.editingData.source_revision =
+          res?.updated_card?.source_revision ||
+          this.editingData.source_revision ||
+          "";
         this.emitEditingWorldInfoNoteUpdated(nextSummary);
         this.$store.global.showToast(
           `💾 ${this.getEditingWorldInfoNoteLabel()}已保存`,
@@ -2353,10 +2416,14 @@ export default function wiEditor() {
         file_path: this.editingWiFile.file_path || this.editingWiFile.path,
         content: contentToSave,
         compact: true,
+        source_revision: this.editingWiFile?.source_revision || "",
       })
         .then((res) => {
           this.isSaving = false;
           if (res.success) {
+            this.editingWiFile.source_revision =
+              res.source_revision || this.editingWiFile?.source_revision || "";
+            window.dispatchEvent(new CustomEvent("refresh-wi-list"));
             if (withSnapshot) {
               this.$store.global.showToast("💾 已保存整本并生成回滚版本", 2200);
             } else {

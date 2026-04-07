@@ -4,7 +4,7 @@
  */
 
 import { getRandomCard } from "../api/card.js";
-import { batchUpdateTags } from "../api/system.js";
+import { batchUpdateTags, getIndexStatus } from "../api/system.js";
 import { listRuleSets, executeRules } from "../api/automation.js";
 import { listChats } from "../api/chat.js";
 
@@ -78,6 +78,73 @@ export default function header() {
       vs.selectedIds = [];
       vs.lastSelectedId = null;
       vs.draggedCards = [];
+    },
+
+    get searchMode() {
+      return this.currentMode === "worldinfo"
+        ? this.$store.global.wiSearchMode
+        : this.$store.global.cardSearchMode;
+    },
+    set searchMode(val) {
+      const next = val === "fulltext" ? "fulltext" : "fast";
+      if (this.currentMode === "worldinfo") {
+        this.$store.global.wiSearchMode = next;
+        return;
+      }
+      this.$store.global.cardSearchMode = next;
+    },
+
+    get canUseFulltextSearch() {
+      if (this.currentMode === "worldinfo") {
+        return !!this.$store.global.settingsForm.worldinfo_list_use_index;
+      }
+      if (this.currentMode === "cards") {
+        return (
+          !!this.$store.global.settingsForm.cards_list_use_index &&
+          !!this.$store.global.settingsForm.fast_search_use_index
+        );
+      }
+      return false;
+    },
+
+    ensureSearchModeAllowed() {
+      if (this.searchMode !== "fulltext" || this.canUseFulltextSearch) return;
+      this.searchMode = "fast";
+    },
+
+    refreshIndexStatus() {
+      return getIndexStatus()
+        .then((res) => {
+          if (res && res.success && res.status) {
+            this.$store.global.indexStatus = res.status;
+          }
+          this.ensureSearchModeAllowed();
+          return res;
+        })
+        .catch(() => {
+          this.$store.global.indexStatus = {
+            ...(this.$store.global.indexStatus || {}),
+            state: "error",
+            message: "index_status_unavailable",
+          };
+          this.ensureSearchModeAllowed();
+          return { success: false };
+        });
+    },
+
+    startIndexStatusPolling() {
+      this.stopIndexStatusPolling();
+      this.refreshIndexStatus();
+      this.$store.global.indexStatusPollTimer = window.setInterval(() => {
+        this.refreshIndexStatus();
+      }, 5000);
+    },
+
+    stopIndexStatusPolling() {
+      if (this.$store.global.indexStatusPollTimer) {
+        window.clearInterval(this.$store.global.indexStatusPollTimer);
+        this.$store.global.indexStatusPollTimer = null;
+      }
     },
 
     get currentSort() {
@@ -176,6 +243,24 @@ export default function header() {
     showMobileMenu: false,
 
     init() {
+      this.startIndexStatusPolling();
+
+      this.$watch("currentMode", () => {
+        this.ensureSearchModeAllowed();
+      });
+
+      this.$watch("$store.global.settingsForm.cards_list_use_index", () => {
+        this.ensureSearchModeAllowed();
+      });
+
+      this.$watch("$store.global.settingsForm.fast_search_use_index", () => {
+        this.ensureSearchModeAllowed();
+      });
+
+      this.$watch("$store.global.settingsForm.worldinfo_list_use_index", () => {
+        this.ensureSearchModeAllowed();
+      });
+
       window.addEventListener("close-header-mobile-menu", () => {
         this.closeMobileMenu();
       });
@@ -205,6 +290,10 @@ export default function header() {
       window.addEventListener("card-page-changed", () => {
         // 延迟一点，等待 DOM 更新完成
         setTimeout(() => this.updateCurrentPageAllSelectedStatus(), 100);
+      });
+
+      window.addEventListener("beforeunload", () => {
+        this.stopIndexStatusPolling();
       });
     },
 

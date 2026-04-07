@@ -25,6 +25,7 @@ from core.data.ui_store import (
 )
 from core.services.card_service import resolve_ui_key
 from core.services.cache_service import invalidate_wi_list_cache
+from core.services.worldinfo_index_query_service import query_worldinfo_index
 from core.services.wi_entry_history_service import (
     ensure_entry_uids,
     collect_previous_versions,
@@ -33,6 +34,7 @@ from core.services.wi_entry_history_service import (
     get_history_limit
 )
 from core.utils.filesystem import safe_move_to_trash
+from core.utils.source_revision import build_file_source_revision
 
 def _safe_mtime(path: str) -> float:
     try:
@@ -221,6 +223,94 @@ def _get_embedded_worldinfo_ui_summary(ui_data: dict, card_id: str = '') -> str:
         return card_summary
 
     return _get_worldinfo_ui_summary(ui_data, 'embedded', card_id=card_id)
+
+
+def _worldinfo_owner_card_id(item: dict) -> str:
+    owner_entity_id = str(item.get('owner_entity_id') or '')
+    if owner_entity_id.startswith('card::'):
+        return owner_entity_id[6:]
+
+    item_id = str(item.get('id') or '')
+    if item.get('type') == 'embedded' and item_id.startswith('world::embedded::'):
+        return item_id[len('world::embedded::'):]
+
+    parts = item_id.split('::')
+    if item.get('type') == 'resource' and len(parts) >= 4:
+        return parts[2]
+
+    return ''
+
+
+def _legacy_worldinfo_id(item: dict) -> str:
+    item_id = str(item.get('id') or '')
+    item_type = str(item.get('type') or '')
+
+    if item_type == 'global' and item_id.startswith('world::global::'):
+        return 'global::' + item_id[len('world::global::'):]
+
+    if item_type == 'resource' and item_id.startswith('world::resource::'):
+        return 'resource::' + item_id[len('world::resource::'):]
+
+    if item_type == 'embedded' and item_id.startswith('world::embedded::'):
+        return 'embedded::' + item_id[len('world::embedded::'):]
+
+    return item_id
+
+
+def _infer_worldinfo_name_source(name: str, file_name: str, source_type: str = '', path: str = '') -> str:
+    if str(name or '').strip() != str(file_name or '').strip():
+        return 'meta'
+
+    normalized_type = str(source_type or '').strip().lower()
+    if normalized_type not in ('global', 'resource') or not path:
+        return 'meta'
+
+    try:
+        with open(path, 'r', encoding='utf-8') as handle:
+            data = json.load(handle)
+        if isinstance(data, dict) and str(data.get('name') or '').strip():
+            return 'meta'
+        return 'filename'
+    except Exception:
+        return 'meta'
+
+
+def _enrich_indexed_worldinfo_item(item: dict, card_map: dict, ui_data: dict) -> dict:
+    enriched = dict(item)
+    enriched['id'] = _legacy_worldinfo_id(enriched)
+    file_name = str(enriched.get('filename') or '')
+    owner_card_id = _worldinfo_owner_card_id(enriched)
+    owner_card = card_map.get(owner_card_id) or {}
+    owner_card_name = str(owner_card.get('char_name') or '')
+    owner_card_category = _normalize_category_path(owner_card.get('category', ''))
+    item_type = str(enriched.get('type') or '')
+
+    enriched['file_name'] = file_name
+    enriched['name_source'] = _infer_worldinfo_name_source(
+        enriched.get('name', ''),
+        file_name,
+        item_type,
+        str(enriched.get('path') or ''),
+    )
+    enriched['category_override'] = enriched.get('display_category', '') if enriched.get('category_mode') == 'override' else ''
+    enriched['owner_card_id'] = owner_card_id
+    enriched['owner_card_name'] = owner_card_name
+    enriched['owner_card_category'] = owner_card_category
+
+    if item_type == 'global':
+        enriched['card_id'] = ''
+        enriched['card_name'] = ''
+        enriched['ui_summary'] = _get_worldinfo_ui_summary(ui_data, 'global', file_path=str(enriched.get('path') or ''))
+    elif item_type == 'resource':
+        enriched['card_id'] = owner_card_id
+        enriched['card_name'] = owner_card_name
+        enriched['ui_summary'] = _get_worldinfo_ui_summary(ui_data, 'resource', file_path=str(enriched.get('path') or ''))
+    else:
+        enriched['card_id'] = owner_card_id
+        enriched['card_name'] = owner_card_name
+        enriched['ui_summary'] = _get_embedded_worldinfo_ui_summary(ui_data, card_id=owner_card_id)
+
+    return enriched
 
 
 def _iter_category_ancestors(category: str):
@@ -597,9 +687,12 @@ bp = Blueprint('wi', __name__)
 @bp.route('/api/world_info/list', methods=['GET'])
 def api_list_world_infos():
     try:
-        search = request.args.get('search', '').lower().strip()
+        search = request.args.get('search', '').strip()
         category = _normalize_category_path(request.args.get('category', ''))
         wi_type = request.args.get('type', 'all') # all, global, resource, embedded
+        search_mode = request.args.get('search_mode', 'fast').strip().lower()
+        if search_mode not in ('fast', 'fulltext'):
+            search_mode = 'fast'
 
         # 新增分页参数
         try:
@@ -610,6 +703,61 @@ def api_list_world_infos():
 
         # === 动态获取配置中的路径，而不是使用全局静态变量 ===
         cfg = load_config()
+        if bool(cfg.get('worldinfo_list_use_index', False)):
+            ui_data = load_ui_data()
+            if not ctx.cache.initialized:
+                ctx.cache.reload_from_db()
+            card_map = {str(card.get('id') or ''): card for card in getattr(ctx.cache, 'cards', []) or []}
+            extra_source_paths = []
+            extra_owner_entity_ids = []
+            if search:
+                search_lc = search.lower()
+                notes = (ui_data.get('_worldinfo_notes_v1') or {}) if isinstance(ui_data, dict) else {}
+                for note_key, note_value in notes.items():
+                    summary = str((note_value or {}).get('summary') or '').lower() if isinstance(note_value, dict) else ''
+                    if search_lc not in summary:
+                        continue
+                    note_key_str = str(note_key or '')
+                    if note_key_str.startswith('resource::') or note_key_str.startswith('global::'):
+                        extra_source_paths.append(note_key_str.split('::', 1)[1])
+                    elif note_key_str.startswith('embedded::'):
+                        extra_owner_entity_ids.append(f"card::{note_key_str.split('::', 1)[1]}")
+
+                for card_id, card in card_map.items():
+                    if search_lc in str(card.get('char_name') or '').lower():
+                        extra_owner_entity_ids.append(f'card::{card_id}')
+
+            query_filters = {
+                'type': wi_type,
+                'category': category,
+                'search': search,
+                'search_mode': search_mode,
+                'page': page,
+                'page_size': page_size,
+                'db_path': DEFAULT_DB_PATH,
+                'paginate': True,
+            }
+            if extra_source_paths:
+                query_filters['source_paths'] = sorted(set(extra_source_paths))
+            if extra_owner_entity_ids:
+                query_filters['owner_entity_ids'] = sorted(set(extra_owner_entity_ids))
+
+            indexed_source = query_worldinfo_index(query_filters)
+            items = [
+                _enrich_indexed_worldinfo_item(item, card_map, ui_data)
+                for item in indexed_source['items']
+            ]
+            return jsonify({
+                'success': True,
+                'items': items,
+                'total': int(indexed_source.get('total') or 0),
+                'page': page,
+                'page_size': page_size,
+                'all_folders': indexed_source.get('all_folders') or [],
+                'category_counts': indexed_source.get('category_counts') or {},
+                'folder_capabilities': indexed_source.get('folder_capabilities') or {},
+            })
+
         current_wi_folder = _resolve_wi_dir(cfg)
         resources_root = _resolve_resources_dir(cfg)
         if not os.path.exists(current_wi_folder):
@@ -617,7 +765,7 @@ def api_list_world_infos():
             except: pass
 
         # ===== [CACHE] key = type + category + search（未分页 items）=====
-        cache_key = f"{wi_type}||{category}||{search}"
+        cache_key = f"{wi_type}||{category}||{search_mode}||{search.lower()}"
 
         cfg = load_config()
         default_res_dir = _resolve_resources_dir(cfg)
@@ -1254,6 +1402,7 @@ def api_get_world_info_detail():
             cfg = load_config()
             resp = _apply_world_info_preview(book, cfg, preview_limit=preview_limit, force_full=force_full)
             resp['ui_summary'] = _get_embedded_worldinfo_ui_summary(ui_data, card_id=card_id)
+            resp['source_revision'] = build_file_source_revision(file_path)
             return jsonify(resp)
 
         if not file_path:
@@ -1294,9 +1443,44 @@ def api_get_world_info_detail():
         resp = _apply_world_info_preview(data, cfg, preview_limit=preview_limit, force_full=force_full)
         effective_source = source_type if source_type in ('global', 'resource') else ('resource' if _is_under_base(file_path, resources_dir) else 'global')
         resp['ui_summary'] = _get_worldinfo_ui_summary(ui_data, effective_source, file_path=file_path)
+        resp['source_revision'] = build_file_source_revision(file_path)
         return jsonify(resp)
     except Exception as e:
         return jsonify({"success": False, "msg": str(e)})
+
+
+@bp.route('/api/world_info/detail_search', methods=['POST'])
+def api_world_info_detail_search():
+    req = request.get_json(silent=True) or {}
+    data = req.get('data') or {}
+    query = str(req.get('query') or '').strip().lower()
+    if not query:
+        return jsonify({'success': True, 'items': []})
+
+    def _normalize_terms(value):
+        if isinstance(value, list):
+            return [str(item) for item in value if item is not None]
+        if value is None:
+            return []
+        return [str(value)]
+
+    entries = []
+    raw_entries = data.get('entries') if isinstance(data, dict) else []
+    if isinstance(raw_entries, dict):
+        raw_entries = list(raw_entries.values())
+    for index, entry in enumerate(raw_entries or []):
+        entry = entry or {}
+        comment = str(entry.get('comment') or '')
+        content = str(entry.get('content') or '')
+        key_terms = []
+        key_terms.extend(_normalize_terms(entry.get('keys')))
+        key_terms.extend(_normalize_terms(entry.get('secondary_keys')))
+        key_terms.extend(_normalize_terms(entry.get('keysecondary')))
+        key_terms.extend(_normalize_terms(entry.get('key')))
+        text = ' '.join([comment, content, ' '.join(key_terms)]).lower()
+        if query in text:
+            entries.append({'index': index})
+    return jsonify({'success': True, 'items': entries})
 
 
 @bp.route('/api/world_info/note/save', methods=['POST'])
@@ -1380,6 +1564,20 @@ def api_save_world_info():
             cfg = load_config()
             if not _is_valid_wi_file(final_path, cfg):
                 return jsonify({"success": False, "msg": "非法路径"})
+            requested_revision = str(req.get('source_revision') or '').strip()
+            if not requested_revision:
+                return jsonify({
+                    'success': False,
+                    'msg': 'source_revision required for overwrite',
+                    'current_source_revision': build_file_source_revision(final_path),
+                }), 409
+            current_revision = build_file_source_revision(final_path)
+            if current_revision and requested_revision != current_revision:
+                return jsonify({
+                    'success': False,
+                    'msg': f'source_revision mismatch: expected {current_revision}',
+                    'current_source_revision': current_revision,
+                }), 409
             try:
                 with open(final_path, 'r', encoding='utf-8') as f:
                     old_content = json.load(f)
@@ -1425,7 +1623,11 @@ def api_save_world_info():
             )
         
         invalidate_wi_list_cache()
-        return jsonify({"success": True, "new_path": final_path})
+        return jsonify({
+            "success": True,
+            "new_path": final_path,
+            "source_revision": build_file_source_revision(final_path),
+        })
     except Exception as e:
         return jsonify({"success": False, "msg": str(e)})
 

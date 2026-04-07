@@ -1364,6 +1364,27 @@ def test_mobile_layout_css_defines_search_upload_group_and_no_legacy_sidebar_but
     assert '.sidebar-group-btn {' not in layout_css
 
 
+def test_mobile_header_css_wraps_search_toggle_onto_its_own_row():
+    layout_css = read_project_file('static/css/modules/layout.css')
+    mobile_layout_css = extract_media_block(layout_css, '@media (max-width: 768px)')
+
+    search_row_block = extract_exact_css_block(mobile_layout_css, '.mobile-header-search-row')
+    tools_block = extract_exact_css_block(mobile_layout_css, '.mobile-header-search-tools')
+    mode_row_block = extract_exact_css_block(mobile_layout_css, '.mobile-search-mode-row')
+    toggle_block = extract_exact_css_block(mobile_layout_css, '.mobile-search-mode-toggle')
+
+    assert 'display: flex;' in search_row_block
+    assert 'flex-direction: column;' in search_row_block
+    assert 'gap: 0.375rem;' in search_row_block
+    assert 'display: flex;' in tools_block
+    assert 'align-items: center;' in tools_block
+    assert 'min-width: 0;' in tools_block
+    assert 'width: 100%;' in mode_row_block
+    assert 'display: flex;' in toggle_block
+    assert 'width: auto;' in toggle_block
+    assert 'flex: none;' in toggle_block
+
+
 def test_mobile_header_template_tracks_sidebar_open_state_for_toggle_feedback():
     header_template = read_project_file('templates/components/header.html')
 
@@ -2172,6 +2193,15 @@ def test_worldinfo_css_uses_single_shell_card_and_stretches_flip_inner():
 
     flip_inner_block = extract_exact_css_block(wi_css, '.wi-grid-card .card-flip-inner')
     assert 'height: 100%;' in flip_inner_block
+
+
+def test_worldinfo_mobile_card_shell_uses_fixed_height_for_windowed_grid():
+    wi_css = read_project_file('static/css/modules/view-wi.css')
+    mobile_block = extract_media_block(wi_css, '@media (max-width: 768px)')
+    grid_card_mobile_block = extract_exact_css_block(mobile_block, '.wi-grid-card')
+
+    assert 'height:' in grid_card_mobile_block
+    assert 'min-height:' not in grid_card_mobile_block
 
 
 def test_worldinfo_css_exposes_shared_page_boundary_tokens_for_card_faces():

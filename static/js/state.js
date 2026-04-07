@@ -254,6 +254,7 @@ export function initState() {
     toastMessage: "",
     showToastState: false,
     toastTimer: null,
+    indexStatusPollTimer: null,
     _resizeTimer: null,
     _visualViewportResizeHandler: null,
 
@@ -286,6 +287,15 @@ export function initState() {
     // 世界书共享状态
     wiList: [], // 世界书列表数据
     wiSearchQuery: "", // 搜索关键词
+    cardSearchMode: "fast",
+    wiSearchMode: "fast",
+    indexStatus: {
+      state: "empty",
+      scope: "cards",
+      progress: 0,
+      message: "",
+      pending_jobs: 0,
+    },
     wiFilterType: "all", // 筛选类型: 'all', 'global', 'resource', 'embedded'
     wiFilterCategory: "",
     wiAllFolders: [],
@@ -350,6 +360,9 @@ export function initState() {
       bg_blur: 0,
       favorites_first: false,
       png_deterministic_sort: false,
+      cards_list_use_index: false,
+      fast_search_use_index: false,
+      worldinfo_list_use_index: false,
       allowed_abs_resource_roots: [],
       wi_preview_limit: 300,
       wi_preview_entry_max_chars: 2000,
@@ -531,6 +544,9 @@ export function initState() {
             items_per_page_wi: localPerPageWi
               ? parseInt(localPerPageWi)
               : settings.items_per_page_wi || 0,
+            cards_list_use_index: !!settings.cards_list_use_index,
+            fast_search_use_index: !!settings.fast_search_use_index,
+            worldinfo_list_use_index: !!settings.worldinfo_list_use_index,
           };
 
           this.currentSort = this.settingsForm.default_sort || "date_desc";

@@ -15,63 +15,90 @@
       <div class="mobile-title">STM</div>
     </button>
 
-    <!-- 中间：搜索框 -->
-    <div
-      class="mobile-search-group"
-      :class="showMobileUploadButton ? '' : 'mobile-search-group--full'"
-    >
-      <div class="mobile-search-wrapper">
-        <input
-          x-show="currentMode === 'cards'"
-          type="text"
-          x-model.debounce.300ms="searchQuery"
-          placeholder="搜索..."
-          class="mobile-search-input"
-        />
-        <input
-          x-show="currentMode === 'worldinfo'"
-          type="text"
-          x-model.debounce.300ms="wiSearchQuery"
-          placeholder="搜索..."
-          class="mobile-search-input"
-        />
-        <input
-          x-show="currentMode === 'chats'"
-          type="text"
-          x-model.debounce.300ms="chatSearchQuery"
-          placeholder="搜索聊天..."
-          class="mobile-search-input"
-        />
-        <input
-          x-show="currentMode === 'presets'"
-          type="text"
-          x-model.debounce.300ms="presetSearch"
-          placeholder="搜索预设..."
-          class="mobile-search-input"
-        />
-        <input
-          x-show="['regex','scripts','quick_replies'].includes(currentMode)"
-          type="text"
-          x-model.debounce.300ms="extensionSearch"
-          :placeholder="currentMode === 'regex' ? '搜索正则...' : (currentMode === 'scripts' ? '搜索 ST 脚本...' : '搜索快速回复...')"
-          class="mobile-search-input"
-        />
-      </div>
-      <button
-        x-show="showMobileUploadButton"
-        type="button"
-        class="mobile-upload-btn"
-        @click="triggerMobileUpload()"
-      >
-        <span>📥</span>
-      </button>
-    </div>
+    <div class="mobile-header-search-row">
+      <div class="mobile-header-search-tools">
+        <!-- 中间：搜索框 -->
+        <div
+          class="mobile-search-group"
+          :class="showMobileUploadButton ? '' : 'mobile-search-group--full'"
+        >
+          <div class="mobile-search-wrapper">
+            <input
+              x-show="currentMode === 'cards'"
+              type="text"
+              x-model.debounce.300ms="searchQuery"
+              placeholder="搜索..."
+              class="mobile-search-input"
+            />
+            <input
+              x-show="currentMode === 'worldinfo'"
+              type="text"
+              x-model.debounce.300ms="wiSearchQuery"
+              placeholder="搜索..."
+              class="mobile-search-input"
+            />
+            <input
+              x-show="currentMode === 'chats'"
+              type="text"
+              x-model.debounce.300ms="chatSearchQuery"
+              placeholder="搜索聊天..."
+              class="mobile-search-input"
+            />
+            <input
+              x-show="currentMode === 'presets'"
+              type="text"
+              x-model.debounce.300ms="presetSearch"
+              placeholder="搜索预设..."
+              class="mobile-search-input"
+            />
+            <input
+              x-show="['regex','scripts','quick_replies'].includes(currentMode)"
+              type="text"
+              x-model.debounce.300ms="extensionSearch"
+              :placeholder="currentMode === 'regex' ? '搜索正则...' : (currentMode === 'scripts' ? '搜索 ST 脚本...' : '搜索快速回复...')"
+              class="mobile-search-input"
+            />
+          </div>
+          <button
+            x-show="showMobileUploadButton"
+            type="button"
+            class="mobile-upload-btn"
+            @click="triggerMobileUpload()"
+          >
+            <span>📥</span>
+          </button>
+        </div>
 
-    <!-- 右侧：菜单按钮 -->
-    <button @click="toggleMobileMenu()" class="mobile-menu-btn-compact">
-      <span x-show="!showMobileMenu">☰</span>
-      <span x-show="showMobileMenu">✕</span>
-    </button>
+        <!-- 右侧：菜单按钮 -->
+        <button @click="toggleMobileMenu()" class="mobile-menu-btn-compact">
+          <span x-show="!showMobileMenu">☰</span>
+          <span x-show="showMobileMenu">✕</span>
+        </button>
+      </div>
+
+      <div
+        x-show="['cards', 'worldinfo'].includes(currentMode)"
+        class="mobile-search-mode-row"
+      >
+        <div class="mobile-search-mode-toggle">
+          <button
+            type="button"
+            @click='searchMode = "fast"'
+            :class="searchMode === 'fast' ? 'is-active' : ''"
+          >
+            快搜
+          </button>
+          <button
+            type="button"
+            x-show="canUseFulltextSearch"
+            @click='searchMode = "fulltext"'
+            :class="searchMode === 'fulltext' ? 'is-active' : ''"
+          >
+            全文
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- 移动端：第二行 - 筛选标签（递归开关已移到菜单中） -->
@@ -149,6 +176,32 @@
           >V99</span
         >
       </div>
+    </div>
+
+    <div
+      x-show="['cards', 'worldinfo'].includes(currentMode)"
+      class="search-mode-toggle"
+    >
+      <button
+        type="button"
+        @click='searchMode = "fast"'
+        :class="searchMode === 'fast' ? 'is-active' : ''"
+      >
+        快搜
+      </button>
+      <button
+        type="button"
+        x-show="canUseFulltextSearch"
+        @click='searchMode = "fulltext"'
+        :class="searchMode === 'fulltext' ? 'is-active' : ''"
+      >
+        全文
+      </button>
+    </div>
+
+    <div class="index-status-chip" :class="$store.global.indexStatus.state">
+      <span x-text="$store.global.indexStatus.state"></span>
+      <span x-text="$store.global.indexStatus.pending_jobs"></span>
     </div>
 
     <!-- 桌面端：筛选标签云 -->

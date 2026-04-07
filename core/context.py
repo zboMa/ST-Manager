@@ -66,6 +66,18 @@ class AppContext:
         # 初始为 None，在 _init_components 中实例化
         self.cache = None
 
+        # === 索引服务状态 ===
+        self.index_lock = threading.Lock()
+        self.index_job_lock = threading.Lock()
+        self.index_state = {
+            'state': 'empty',
+            'scope': 'cards',
+            'progress': 0,
+            'message': '',
+            'pending_jobs': 0,
+        }
+        self.index_worker_started = False
+
     def _init_components(self):
         """
         初始化复杂组件。

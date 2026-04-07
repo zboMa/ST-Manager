@@ -9,6 +9,7 @@ import {
   createWorldInfo,
   deleteWorldInfo,
 } from "../api/wi.js";
+import { buildWindowedGridState } from "../utils/windowing.js";
 
 export default function wiGrid() {
   return {
@@ -16,6 +17,17 @@ export default function wiGrid() {
     worldInfoBulkBackMode: false,
     worldInfoAutoFlipBackDelayMs: 1800,
     _worldInfoAutoFlipBackTimers: {},
+    windowRange: {
+      startIndex: 0,
+      endIndex: 0,
+      topPadding: 0,
+      bottomPadding: 0,
+    },
+    wiRowHeight: 224,
+    wiGridGap: 0,
+    _fetchWorldInfoAbort: new AbortController(),
+    _fetchWorldInfoTimer: null,
+    _syncWiWindowRangeHandler: null,
 
     // === Store 代理 ===
     get wiList() {
@@ -342,6 +354,69 @@ export default function wiGrid() {
       );
     },
 
+    get visibleWiItems() {
+      return (this.wiList || []).slice(
+        this.windowRange.startIndex,
+        this.windowRange.endIndex,
+      );
+    },
+
+    get virtualTopSpacerStyle() {
+      return `height:${Math.max(0, this.windowRange.topPadding - this.wiGridGap)}px`;
+    },
+
+    get virtualBottomSpacerStyle() {
+      return `height:${Math.max(0, this.windowRange.bottomPadding - this.wiGridGap)}px`;
+    },
+
+    scheduleFetchWorldInfoList() {
+      clearTimeout(this._fetchWorldInfoTimer);
+      this._fetchWorldInfoTimer = setTimeout(() => {
+        this.fetchWorldInfoList();
+      }, 250);
+    },
+
+    syncWiWindowRange() {
+      const host = document.getElementById("wi-scroll-area");
+      if (!host) return;
+      const grid = host.querySelector(".wi-grid-window");
+      let columnCount = 0;
+      let rowHeight = this.wiRowHeight;
+      let gap = 0;
+
+      if (grid) {
+        const gridTemplateColumns =
+          window.getComputedStyle(grid).gridTemplateColumns;
+        if (gridTemplateColumns && gridTemplateColumns !== "none") {
+          columnCount = gridTemplateColumns
+            .split(" ")
+            .map((part) => part.trim())
+            .filter(Boolean).length;
+        }
+
+        const gridStyle = window.getComputedStyle(grid);
+        const firstCard = grid.querySelector(".wi-grid-card");
+        gap = parseFloat(gridStyle.rowGap || gridStyle.gap || "0") || 0;
+        if (firstCard) {
+          rowHeight = Math.max(1, firstCard.offsetHeight + gap);
+        }
+      }
+
+      if (!columnCount) {
+        const width = host.clientWidth || window.innerWidth;
+        columnCount = Math.max(1, Math.floor(width / 260));
+      }
+
+      this.wiGridGap = gap;
+      this.windowRange = buildWindowedGridState({
+        itemCount: (this.wiList || []).length,
+        columnCount,
+        rowHeight,
+        scrollTop: host.scrollTop,
+        viewportHeight: host.clientHeight,
+      });
+    },
+
     selectedWorldInfoItems() {
       return this.selectedIds
         .map((id) => this.getWorldInfoItemById(id))
@@ -519,21 +594,29 @@ export default function wiGrid() {
       // === 监听 Store 变化自动刷新 ===
       this.$watch("$store.global.wiSearchQuery", () => {
         this.wiCurrentPage = 1;
-        this.fetchWorldInfoList();
+        this.scheduleFetchWorldInfoList();
       });
 
       this.$watch("$store.global.wiFilterType", () => {
         this.wiCurrentPage = 1;
-        this.fetchWorldInfoList();
+        this.scheduleFetchWorldInfoList();
       });
 
       this.$watch("$store.global.wiFilterCategory", () => {
         this.wiCurrentPage = 1;
-        this.fetchWorldInfoList();
+        this.scheduleFetchWorldInfoList();
+      });
+
+      this.$watch("$store.global.wiSearchMode", () => {
+        this.wiCurrentPage = 1;
+        this.scheduleFetchWorldInfoList();
       });
 
       this.$watch("$store.global.wiList", () => {
         this.syncWorldInfoUiState();
+        this.$nextTick(() => {
+          this.syncWiWindowRange();
+        });
       });
 
       // 监听刷新事件
@@ -563,7 +646,7 @@ export default function wiGrid() {
       window.addEventListener("wi-search-changed", (e) => {
         this.wiSearchQuery = e.detail;
         this.wiCurrentPage = 1;
-        this.fetchWorldInfoList();
+        this.scheduleFetchWorldInfoList();
       });
 
       // 提供给外部（例如侧边栏导入按钮）复用的全局上传入口
@@ -584,11 +667,51 @@ export default function wiGrid() {
       window.addEventListener("move-selected-worldinfo", (e) => {
         this.moveSelectedWorldInfo(e.detail?.target_category || "");
       });
+
+      this._syncWiWindowRangeHandler = () => {
+        this.syncWiWindowRange();
+      };
+      const scrollHost = document.getElementById("wi-scroll-area");
+      if (scrollHost) {
+        scrollHost.addEventListener("scroll", this._syncWiWindowRangeHandler, {
+          passive: true,
+        });
+      }
+      window.addEventListener("resize", this._syncWiWindowRangeHandler);
+
+      this.$nextTick(() => {
+        this.syncWiWindowRange();
+      });
+    },
+
+    destroy() {
+      const scrollHost = document.getElementById("wi-scroll-area");
+      if (scrollHost && this._syncWiWindowRangeHandler) {
+        scrollHost.removeEventListener(
+          "scroll",
+          this._syncWiWindowRangeHandler,
+        );
+      }
+      if (this._syncWiWindowRangeHandler) {
+        window.removeEventListener("resize", this._syncWiWindowRangeHandler);
+      }
+      clearTimeout(this._fetchWorldInfoTimer);
+      if (this._fetchWorldInfoAbort) {
+        this._fetchWorldInfoAbort.abort();
+      }
     },
 
     // === 数据加载 ===
     fetchWorldInfoList() {
       if (Alpine.store("global").serverStatus.status !== "ready") return;
+
+      try {
+        if (this._fetchWorldInfoAbort) this._fetchWorldInfoAbort.abort();
+      } catch (e) {
+        console.error(e);
+      }
+      this._fetchWorldInfoAbort = new AbortController();
+      const requestController = this._fetchWorldInfoAbort;
 
       Alpine.store("global").isLoading = true;
 
@@ -601,11 +724,14 @@ export default function wiGrid() {
         category: this.wiFilterCategory,
         page: this.wiCurrentPage,
         page_size: pageSize,
+        search_mode: this.$store.global.wiSearchMode || "fast",
       };
 
-      listWorldInfo(params)
+      listWorldInfo(params, requestController.signal)
         .then((res) => {
+          if (this._fetchWorldInfoAbort !== requestController) return;
           Alpine.store("global").isLoading = false;
+          this._fetchWorldInfoAbort = null;
           if (res.success) {
             // 更新 Store 中的列表
             this.wiList = res.items;
@@ -617,9 +743,17 @@ export default function wiGrid() {
 
             this.wiTotalItems = res.total || 0;
             this.wiTotalPages = Math.ceil(this.wiTotalItems / pageSize) || 1;
+            this.$nextTick(() => {
+              this.syncWiWindowRange();
+            });
           }
         })
-        .catch(() => (Alpine.store("global").isLoading = false));
+        .catch((err) => {
+          if (this._fetchWorldInfoAbort !== requestController) return;
+          if (err && err.name !== "AbortError") console.error(err);
+          Alpine.store("global").isLoading = false;
+          this._fetchWorldInfoAbort = null;
+        });
     },
 
     changeWiPage(p) {

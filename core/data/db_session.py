@@ -7,6 +7,7 @@ from flask import g
 
 # === 基础设施 ===
 from core.config import CARDS_FOLDER, DEFAULT_DB_PATH
+from core.data.index_store import ensure_index_schema
 
 # === 工具函数 (用于数据迁移) ===
 from core.utils.image import extract_card_info
@@ -142,6 +143,7 @@ def init_database():
     ''')
     
     conn.commit()
+    ensure_index_schema(conn)
     
     # === 2. 数据库结构升级 (Migrations) ===
     # 检查列是否存在，如果不存在则添加
