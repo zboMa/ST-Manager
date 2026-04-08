@@ -108,3 +108,30 @@ def test_worldinfo_save_requires_source_revision_for_overwrite(monkeypatch, tmp_
     payload = save_res.get_json()
     assert payload['success'] is False
     assert 'source_revision' in payload['msg']
+
+
+def test_worldinfo_save_suppresses_fs_events_on_write(monkeypatch, tmp_path):
+    lore_dir = tmp_path / 'lorebooks'
+    lore_dir.mkdir()
+    book = lore_dir / 'main.json'
+    book.write_text(json.dumps({'name': 'Main', 'entries': {}}, ensure_ascii=False), encoding='utf-8')
+
+    suppress_calls = []
+
+    monkeypatch.setattr(world_info_api, 'BASE_DIR', str(tmp_path))
+    monkeypatch.setattr(world_info_api, 'load_config', lambda: {'world_info_dir': str(lore_dir), 'resources_dir': str(tmp_path / 'resources')})
+    monkeypatch.setattr(world_info_api, 'suppress_fs_events', lambda seconds=0: suppress_calls.append(seconds))
+
+    client = _make_app().test_client()
+    detail_res = client.post('/api/world_info/detail', json={'source_type': 'global', 'file_path': str(book)})
+    detail_payload = detail_res.get_json()
+
+    save_res = client.post('/api/world_info/save', json={
+        'save_mode': 'overwrite',
+        'file_path': str(book),
+        'content': {'name': 'Main Updated', 'entries': {}},
+        'source_revision': detail_payload['source_revision'],
+    })
+
+    assert save_res.status_code == 200
+    assert suppress_calls

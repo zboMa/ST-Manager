@@ -25,6 +25,7 @@ from core.data.ui_store import (
 )
 from core.services.card_service import resolve_ui_key
 from core.services.cache_service import invalidate_wi_list_cache
+from core.services.scan_service import suppress_fs_events
 from core.services.worldinfo_index_query_service import query_worldinfo_index
 from core.services.wi_entry_history_service import (
     ensure_entry_uids,
@@ -1149,6 +1150,7 @@ def api_create_world_info():
             final_path = f"{base}_{idx}{ext}"
             idx += 1
 
+        suppress_fs_events(2.0)
         payload = _build_st_compatible_worldbook_payload(raw_name)
         with open(final_path, 'w', encoding='utf-8') as f:
             json.dump(payload, f, ensure_ascii=False, separators=(',', ':'))
@@ -1202,6 +1204,7 @@ def api_move_world_info_category():
         if source_type != 'global' or not file_path:
             return jsonify({'success': False, 'msg': '缺少必要参数'})
 
+        suppress_fs_events(3.0)
         new_path = _move_global_worldinfo_file(file_path, target_category, cfg)
         invalidate_wi_list_cache()
         return jsonify({'success': True, 'msg': '世界书已移动', 'path': new_path})
@@ -1245,6 +1248,7 @@ def api_create_world_info_folder():
         target_dir = _safe_join_category_path(global_dir, parent_category, folder_name)
         if not target_dir:
             return jsonify({'success': False, 'msg': '目标分类不合法'})
+        suppress_fs_events(1.5)
         os.makedirs(target_dir, exist_ok=True)
         invalidate_wi_list_cache()
         return _folder_response(global_dir, '目录已创建')
@@ -1268,6 +1272,7 @@ def api_rename_world_info_folder():
         target_dir = _safe_join_category_path(global_dir, parent_category, new_name)
         if not source_dir or not target_dir or not os.path.isdir(source_dir):
             return jsonify({'success': False, 'msg': '目录不存在'})
+        suppress_fs_events(3.0)
         os.rename(source_dir, target_dir)
         invalidate_wi_list_cache()
         return _folder_response(global_dir, '目录已重命名')
@@ -1288,6 +1293,7 @@ def api_delete_world_info_folder():
             return jsonify({'success': False, 'msg': '目录不存在'})
         if os.listdir(target_dir):
             return jsonify({'success': False, 'msg': '只能删除空目录'})
+        suppress_fs_events(1.5)
         os.rmdir(target_dir)
         invalidate_wi_list_cache()
         return _folder_response(global_dir, '目录已删除')
@@ -1323,6 +1329,7 @@ def api_upload_world_info():
         if not target_dir:
             return jsonify({"success": False, "msg": "目标分类不合法"})
         
+        suppress_fs_events(2.5)
         os.makedirs(target_dir, exist_ok=True)
 
         success_count = 0
@@ -1609,6 +1616,7 @@ def api_save_world_info():
 
         # 写入
         compact = bool(req.get('compact', False))
+        suppress_fs_events(2.5)
         with open(final_path, 'w', encoding='utf-8') as f:
             if compact:
                 json.dump(content, f, ensure_ascii=False, separators=(',', ':'))
@@ -1694,6 +1702,7 @@ def api_migrate_lorebooks():
                     full = os.path.join(default_res_dir, res_folder)
                     if os.path.exists(full): target_res_dirs.add(full)
 
+        suppress_fs_events(5.0)
         moved_count = 0
         
         for res_path in target_res_dirs:
@@ -1976,6 +1985,7 @@ def api_delete_world_info():
              return jsonify({"success": False, "msg": "非法操作：禁止删除系统文件"})
 
         # 执行移动到回收站
+        suppress_fs_events(2.5)
         if safe_move_to_trash(file_path, TRASH_FOLDER):
             ui_data = load_ui_data()
             if source_type in ('global', 'resource'):

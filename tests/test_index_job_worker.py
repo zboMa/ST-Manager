@@ -72,6 +72,48 @@ def test_enqueue_index_job_updates_visible_pending_jobs_immediately(monkeypatch,
     assert ctx.index_state['pending_jobs'] == 1
 
 
+def test_enqueue_index_job_skips_duplicate_pending_job(monkeypatch, tmp_path):
+    db_path = tmp_path / 'cards_metadata.db'
+
+    with sqlite3.connect(db_path) as conn:
+        ensure_index_runtime_schema(conn)
+
+    monkeypatch.setattr(index_job_worker, 'DEFAULT_DB_PATH', str(db_path))
+
+    index_job_worker.enqueue_index_job('upsert_worldinfo_path', source_path='D:/data/lorebooks/book.json')
+    index_job_worker.enqueue_index_job('upsert_worldinfo_path', source_path='D:/data/lorebooks/book.json')
+
+    with sqlite3.connect(db_path) as conn:
+        rows = conn.execute(
+            'SELECT job_type, status, source_path FROM index_jobs ORDER BY id'
+        ).fetchall()
+
+    assert rows == [('upsert_worldinfo_path', 'pending', 'D:/data/lorebooks/book.json')]
+
+
+def test_enqueue_index_job_hot_path_does_not_reensure_schema(monkeypatch, tmp_path):
+    db_path = tmp_path / 'cards_metadata.db'
+
+    with sqlite3.connect(db_path) as conn:
+        ensure_index_runtime_schema(conn)
+
+    monkeypatch.setattr(index_job_worker, 'DEFAULT_DB_PATH', str(db_path))
+
+    def _boom(_conn):
+        raise AssertionError('ensure_index_runtime_schema should not be called from enqueue hot path')
+
+    monkeypatch.setattr(index_job_worker, 'ensure_index_runtime_schema', _boom)
+
+    index_job_worker.enqueue_index_job('upsert_card', entity_id='hero.png', source_path='hero.png')
+
+    with sqlite3.connect(db_path) as conn:
+        row = conn.execute(
+            'SELECT job_type, entity_id, source_path, status FROM index_jobs ORDER BY id DESC LIMIT 1'
+        ).fetchone()
+
+    assert row == ('upsert_card', 'hero.png', 'hero.png', 'pending')
+
+
 def test_worker_claims_pending_jobs_before_processing(monkeypatch, tmp_path):
     db_path = tmp_path / 'cards_metadata.db'
 

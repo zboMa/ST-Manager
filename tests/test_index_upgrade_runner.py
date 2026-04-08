@@ -168,11 +168,17 @@ def test_backfill_embedded_worldinfo_keeps_uninspectable_rows_unscanned(monkeypa
     ]
 
 
-def test_rebuild_worldinfo_generation_writes_real_v2_rows_before_ready(monkeypatch, tmp_path):
+def test_rebuild_worldinfo_generation_writes_full_v2_rows_before_ready(monkeypatch, tmp_path):
     db_path = tmp_path / 'cards_metadata.db'
     cards_dir = tmp_path / 'cards'
+    lore_dir = tmp_path / 'lorebooks'
+    resources_dir = tmp_path / 'resources'
     cards_dir.mkdir()
     (cards_dir / 'hero.png').write_bytes(b'hero')
+    (lore_dir / 'fantasy').mkdir(parents=True, exist_ok=True)
+    (lore_dir / 'fantasy' / 'global-book.json').write_text('{"name": "Global Book", "entries": {}}', encoding='utf-8')
+    (resources_dir / 'hero-assets' / 'lorebooks').mkdir(parents=True, exist_ok=True)
+    (resources_dir / 'hero-assets' / 'lorebooks' / 'resource-book.json').write_text('{"name": "Resource Book", "entries": {}}', encoding='utf-8')
 
     with sqlite3.connect(db_path) as conn:
         ensure_index_runtime_schema(conn)
@@ -187,7 +193,29 @@ def test_rebuild_worldinfo_generation_writes_real_v2_rows_before_ready(monkeypat
     monkeypatch.setattr(index_upgrade_service, 'DEFAULT_DB_PATH', str(db_path))
     monkeypatch.setattr(index_upgrade_service, 'CARDS_FOLDER', str(cards_dir))
     monkeypatch.setattr(index_build_service, 'CARDS_FOLDER', str(cards_dir))
-    monkeypatch.setattr(index_build_service, 'load_ui_data', lambda: {})
+    monkeypatch.setattr(
+        index_build_service,
+        'load_config',
+        lambda: {
+            'world_info_dir': str(lore_dir),
+            'resources_dir': str(resources_dir),
+        },
+    )
+    monkeypatch.setattr(
+        index_build_service,
+        'load_ui_data',
+        lambda: {
+            'hero.png': {'resource_folder': 'hero-assets', 'summary': 'embedded summary'},
+            '_resource_item_categories_v1': {
+                'worldinfo': {
+                    str(resources_dir / 'hero-assets' / 'lorebooks' / 'resource-book.json').replace('\\', '/').lower(): {
+                        'category': 'override-cat',
+                        'updated_at': 1,
+                    }
+                }
+            },
+        },
+    )
 
     def _extract(_path):
         return {'data': {'character_book': {'name': 'Book', 'entries': {'0': {'content': 'hello'}}}}}
@@ -203,14 +231,28 @@ def test_rebuild_worldinfo_generation_writes_real_v2_rows_before_ready(monkeypat
             "SELECT active_generation, building_generation, state, items_written FROM index_build_state WHERE scope = 'worldinfo'"
         ).fetchone()
         entity_rows = conn.execute(
-            "SELECT generation, entity_type, name, owner_entity_id FROM index_entities_v2 WHERE entity_type LIKE 'world_%' ORDER BY entity_id"
+            "SELECT generation, entity_type, name, display_category, category_mode, owner_entity_id FROM index_entities_v2 WHERE entity_type LIKE 'world_%' ORDER BY entity_id"
+        ).fetchall()
+        stat_rows = conn.execute(
+            "SELECT entity_type, category_path, direct_count, subtree_count FROM index_category_stats_v2 WHERE generation = 1 AND scope = 'worldinfo' ORDER BY entity_type, category_path"
         ).fetchall()
         metadata_row = conn.execute(
             "SELECT has_character_book, character_book_name, wi_metadata_scanned FROM card_metadata WHERE id = 'hero.png'"
         ).fetchone()
 
-    assert state_row == (1, 0, 'ready', 1)
-    assert entity_rows == [(1, 'world_embedded', 'Book', 'card::hero.png')]
+    assert state_row == (1, 0, 'ready', 3)
+    assert entity_rows == [
+        (1, 'world_embedded', 'Book', 'fantasy', 'inherited', 'card::hero.png'),
+        (1, 'world_global', 'Global Book', 'fantasy', 'physical', ''),
+        (1, 'world_resource', 'Resource Book', 'override-cat', 'override', 'card::hero.png'),
+    ]
+    assert stat_rows == [
+        ('world_all', 'fantasy', 2, 2),
+        ('world_all', 'override-cat', 1, 1),
+        ('world_embedded', 'fantasy', 1, 1),
+        ('world_global', 'fantasy', 1, 1),
+        ('world_resource', 'override-cat', 1, 1),
+    ]
     assert metadata_row == (1, 'Book', 1)
 
 

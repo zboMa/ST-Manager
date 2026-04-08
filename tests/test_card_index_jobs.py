@@ -32,6 +32,7 @@ def _make_test_app():
 def _init_index_db(db_path: Path):
     with sqlite3.connect(db_path) as conn:
         ensure_index_schema(conn)
+        ensure_index_runtime_schema(conn)
 
 
 class _StopWorkerLoop(Exception):
@@ -426,6 +427,286 @@ def test_worker_loop_processes_upsert_card_job(monkeypatch, tmp_path):
 
     assert job_row == ('done', '')
     assert calls == [('cards', 'incremental_reconcile')]
+
+
+def test_worker_loop_coalesces_multiple_worldinfo_reconcile_jobs(monkeypatch, tmp_path):
+    db_path = tmp_path / 'cards_metadata.db'
+    _init_index_db(db_path)
+    monkeypatch.setattr(index_job_worker, 'DEFAULT_DB_PATH', str(db_path))
+
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            'INSERT INTO index_jobs(job_type, source_path, payload_json) VALUES (?, ?, ?)',
+            ('upsert_worldinfo_path', 'D:/data/lorebooks/a.json', '{}'),
+        )
+        conn.execute(
+            'INSERT INTO index_jobs(job_type, entity_id, payload_json) VALUES (?, ?, ?)',
+            ('upsert_world_embedded', 'card::hero.png', '{}'),
+        )
+        conn.execute(
+            'INSERT INTO index_jobs(job_type, entity_id, payload_json) VALUES (?, ?, ?)',
+            ('upsert_world_owner', 'hero.png', '{}'),
+        )
+        conn.commit()
+
+    calls = []
+
+    def fake_rebuild_scope_generation(scope='cards', reason='bootstrap'):
+        calls.append((scope, reason))
+
+    wait_calls = {'count': 0}
+
+    def fake_wait(timeout):
+        wait_calls['count'] += 1
+        if wait_calls['count'] >= 2:
+            raise _StopWorkerLoop()
+        return True
+
+    monkeypatch.setattr(index_job_worker, 'rebuild_scope_generation', fake_rebuild_scope_generation)
+    monkeypatch.setattr(ctx.index_wakeup, 'wait', fake_wait)
+    ctx.index_state.update({'state': 'empty', 'scope': 'cards', 'progress': 0, 'message': '', 'pending_jobs': 0})
+    ctx.index_wakeup.set()
+
+    with pytest.raises(_StopWorkerLoop):
+        index_job_worker.worker_loop()
+
+    with sqlite3.connect(db_path) as conn:
+        rows = conn.execute(
+            'SELECT job_type, status, error_msg FROM index_jobs ORDER BY id'
+        ).fetchall()
+
+    assert [row[1] for row in rows] == ['done', 'done', 'done']
+    assert calls == [('worldinfo', 'incremental_reconcile')]
+
+
+def test_worker_loop_updates_worldinfo_path_in_active_generation_without_full_rebuild(monkeypatch, tmp_path):
+    db_path = tmp_path / 'cards_metadata.db'
+    lore_dir = tmp_path / 'lorebooks'
+    lore_dir.mkdir()
+    book_path = lore_dir / 'dragon.json'
+    book_path.write_text(json.dumps({'name': 'Dragon Lore', 'entries': {}}, ensure_ascii=False), encoding='utf-8')
+
+    _init_index_db(db_path)
+    monkeypatch.setattr(index_job_worker, 'DEFAULT_DB_PATH', str(db_path))
+
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("UPDATE index_build_state SET active_generation = 1, state = 'ready', phase = 'ready' WHERE scope = 'worldinfo'")
+        conn.execute(
+            "INSERT OR REPLACE INTO index_entities_v2(generation, entity_id, entity_type, source_path, owner_entity_id, name, filename, display_category, physical_category, category_mode, favorite, summary_preview, updated_at, import_time, token_count, sort_name, sort_mtime, thumb_url, source_revision) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (1, 'world::global::dragon.json', 'world_global', str(book_path), '', 'Old Lore', 'dragon.json', '', '', 'physical', 0, '', 10.0, 0.0, 0, 'old lore', 10.0, '', '10:1'),
+        )
+        conn.execute(
+            'INSERT INTO index_jobs(job_type, source_path, payload_json) VALUES (?, ?, ?)',
+            ('upsert_worldinfo_path', str(book_path), '{}'),
+        )
+        conn.commit()
+
+    calls = []
+
+    def fake_rebuild_scope_generation(scope='cards', reason='bootstrap'):
+        calls.append((scope, reason))
+
+    wait_calls = {'count': 0}
+
+    def fake_wait(timeout):
+        wait_calls['count'] += 1
+        if wait_calls['count'] >= 2:
+            raise _StopWorkerLoop()
+        return True
+
+    monkeypatch.setattr(index_job_worker, 'rebuild_scope_generation', fake_rebuild_scope_generation)
+    monkeypatch.setattr(index_build_service, 'load_config', lambda: {'world_info_dir': str(lore_dir), 'resources_dir': str(tmp_path / 'resources')})
+    monkeypatch.setattr(index_build_service, 'load_ui_data', lambda: {'_resource_item_categories_v1': {'worldinfo': {}}})
+    monkeypatch.setattr(ctx.index_wakeup, 'wait', fake_wait)
+    ctx.index_state.update({'state': 'empty', 'scope': 'cards', 'progress': 0, 'message': '', 'pending_jobs': 0})
+    ctx.index_wakeup.set()
+
+    with pytest.raises(_StopWorkerLoop):
+        index_job_worker.worker_loop()
+
+    with sqlite3.connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT generation, entity_id, name, display_category FROM index_entities_v2 WHERE generation = 1 AND entity_type LIKE 'world_%' ORDER BY entity_id"
+        ).fetchall()
+        stats = conn.execute(
+            "SELECT entity_type, category_path, direct_count, subtree_count FROM index_category_stats_v2 WHERE generation = 1 AND scope = 'worldinfo' ORDER BY entity_type, category_path"
+        ).fetchall()
+        job_row = conn.execute(
+            'SELECT status, error_msg FROM index_jobs WHERE job_type = ?',
+            ('upsert_worldinfo_path',),
+        ).fetchone()
+
+    assert rows == [(1, 'world::global::dragon.json', 'Dragon Lore', '')]
+    assert stats == []
+    assert job_row == ('done', '')
+    assert calls == []
+
+
+def test_worker_loop_updates_embedded_worldinfo_in_active_generation_without_full_rebuild(monkeypatch, tmp_path):
+    db_path = tmp_path / 'cards_metadata.db'
+    cards_dir = tmp_path / 'cards'
+    cards_dir.mkdir()
+    card_path = cards_dir / 'hero.png'
+    card_path.write_bytes(b'hero')
+
+    _init_index_db(db_path)
+    monkeypatch.setattr(index_job_worker, 'DEFAULT_DB_PATH', str(db_path))
+
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            'CREATE TABLE card_metadata (id TEXT PRIMARY KEY, char_name TEXT, category TEXT, last_modified REAL, has_character_book INTEGER, character_book_name TEXT)'
+        )
+        conn.execute(
+            'INSERT INTO card_metadata (id, char_name, category, last_modified, has_character_book, character_book_name) VALUES (?, ?, ?, ?, ?, ?)',
+            ('hero.png', 'Hero', 'fantasy', 12.0, 1, 'Old Embedded'),
+        )
+        conn.execute("UPDATE index_build_state SET active_generation = 1, state = 'ready', phase = 'ready' WHERE scope = 'worldinfo'")
+        conn.execute(
+            "INSERT OR REPLACE INTO index_entities_v2(generation, entity_id, entity_type, source_path, owner_entity_id, name, filename, display_category, physical_category, category_mode, favorite, summary_preview, updated_at, import_time, token_count, sort_name, sort_mtime, thumb_url, source_revision) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (1, 'world::embedded::hero.png', 'world_embedded', str(card_path), 'card::hero.png', 'Old Embedded', 'hero.png', 'fantasy', '', 'inherited', 0, '', 10.0, 0.0, 0, 'old embedded', 10.0, '', '10:1'),
+        )
+        conn.execute(
+            'INSERT INTO index_jobs(job_type, entity_id, source_path, payload_json) VALUES (?, ?, ?, ?)',
+            ('upsert_world_embedded', 'hero.png', str(card_path), '{}'),
+        )
+        conn.commit()
+
+    calls = []
+
+    def fake_rebuild_scope_generation(scope='cards', reason='bootstrap'):
+        calls.append((scope, reason))
+
+    wait_calls = {'count': 0}
+
+    def fake_wait(timeout):
+        wait_calls['count'] += 1
+        if wait_calls['count'] >= 2:
+            raise _StopWorkerLoop()
+        return True
+
+    monkeypatch.setattr(index_job_worker, 'rebuild_scope_generation', fake_rebuild_scope_generation)
+    monkeypatch.setattr(index_build_service, 'CARDS_FOLDER', str(cards_dir))
+    monkeypatch.setattr(index_build_service, 'extract_card_info', lambda _path: {'data': {'character_book': {'name': 'New Embedded', 'entries': {'0': {'content': 'hello'}}}}})
+    monkeypatch.setattr(index_build_service, 'load_ui_data', lambda: {'hero.png': {'summary': 'embedded summary'}})
+    monkeypatch.setattr(ctx.index_wakeup, 'wait', fake_wait)
+    ctx.index_state.update({'state': 'empty', 'scope': 'cards', 'progress': 0, 'message': '', 'pending_jobs': 0})
+    ctx.index_wakeup.set()
+
+    with pytest.raises(_StopWorkerLoop):
+        index_job_worker.worker_loop()
+
+    with sqlite3.connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT generation, entity_id, name, summary_preview FROM index_entities_v2 WHERE generation = 1 AND entity_type = 'world_embedded' ORDER BY entity_id"
+        ).fetchall()
+        stats = conn.execute(
+            "SELECT entity_type, category_path, direct_count, subtree_count FROM index_category_stats_v2 WHERE generation = 1 AND scope = 'worldinfo' ORDER BY entity_type, category_path"
+        ).fetchall()
+        job_row = conn.execute(
+            'SELECT status, error_msg FROM index_jobs WHERE job_type = ?',
+            ('upsert_world_embedded',),
+        ).fetchone()
+
+    assert rows == [(1, 'world::embedded::hero.png', 'New Embedded', 'embedded summary')]
+    assert stats == [('world_all', 'fantasy', 1, 1), ('world_embedded', 'fantasy', 1, 1)]
+    assert job_row == ('done', '')
+    assert calls == []
+
+
+def test_worker_loop_updates_owner_worldinfo_in_active_generation_without_full_rebuild(monkeypatch, tmp_path):
+    db_path = tmp_path / 'cards_metadata.db'
+    cards_dir = tmp_path / 'cards'
+    resources_dir = tmp_path / 'resources'
+    cards_dir.mkdir()
+    card_path = cards_dir / 'hero.png'
+    card_path.write_bytes(b'hero')
+    lore_dir = resources_dir / 'hero-assets' / 'lorebooks'
+    lore_dir.mkdir(parents=True)
+    resource_book = lore_dir / 'resource-book.json'
+    resource_book.write_text(json.dumps({'name': 'Resource Book', 'entries': {}}, ensure_ascii=False), encoding='utf-8')
+
+    _init_index_db(db_path)
+    monkeypatch.setattr(index_job_worker, 'DEFAULT_DB_PATH', str(db_path))
+
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            'CREATE TABLE card_metadata (id TEXT PRIMARY KEY, char_name TEXT, category TEXT, last_modified REAL, has_character_book INTEGER, character_book_name TEXT)'
+        )
+        conn.execute(
+            'INSERT INTO card_metadata (id, char_name, category, last_modified, has_character_book, character_book_name) VALUES (?, ?, ?, ?, ?, ?)',
+            ('hero.png', 'Hero', 'fantasy', 12.0, 1, 'Old Embedded'),
+        )
+        conn.execute("UPDATE index_build_state SET active_generation = 1, state = 'ready', phase = 'ready' WHERE scope = 'worldinfo'")
+        conn.execute(
+            "INSERT OR REPLACE INTO index_entities_v2(generation, entity_id, entity_type, source_path, owner_entity_id, name, filename, display_category, physical_category, category_mode, favorite, summary_preview, updated_at, import_time, token_count, sort_name, sort_mtime, thumb_url, source_revision) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (1, 'world::embedded::hero.png', 'world_embedded', str(card_path), 'card::hero.png', 'Old Embedded', 'hero.png', 'fantasy', '', 'inherited', 0, '', 10.0, 0.0, 0, 'old embedded', 10.0, '', '10:1'),
+        )
+        conn.execute(
+            "INSERT OR REPLACE INTO index_entities_v2(generation, entity_id, entity_type, source_path, owner_entity_id, name, filename, display_category, physical_category, category_mode, favorite, summary_preview, updated_at, import_time, token_count, sort_name, sort_mtime, thumb_url, source_revision) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (1, 'world::resource::hero.png::resource-book.json', str('world_resource'), str(resource_book), 'card::hero.png', 'Old Resource', 'resource-book.json', 'old-cat', '', 'inherited', 0, '', 10.0, 0.0, 0, 'old resource', 10.0, '', '10:1'),
+        )
+        conn.execute(
+            'INSERT INTO index_jobs(job_type, entity_id, source_path, payload_json) VALUES (?, ?, ?, ?)',
+            ('upsert_world_owner', 'hero.png', str(card_path), '{}'),
+        )
+        conn.commit()
+
+    calls = []
+
+    def fake_rebuild_scope_generation(scope='cards', reason='bootstrap'):
+        calls.append((scope, reason))
+
+    wait_calls = {'count': 0}
+
+    def fake_wait(timeout):
+        wait_calls['count'] += 1
+        if wait_calls['count'] >= 2:
+            raise _StopWorkerLoop()
+        return True
+
+    monkeypatch.setattr(index_job_worker, 'rebuild_scope_generation', fake_rebuild_scope_generation)
+    monkeypatch.setattr(index_build_service, 'CARDS_FOLDER', str(cards_dir))
+    monkeypatch.setattr(index_build_service, 'load_config', lambda: {'world_info_dir': str(tmp_path / 'global-lorebooks'), 'resources_dir': str(resources_dir)})
+    monkeypatch.setattr(index_build_service, 'extract_card_info', lambda _path: {'data': {'character_book': {'name': 'New Embedded', 'entries': {'0': {'content': 'hello'}}}}})
+    monkeypatch.setattr(index_build_service, 'load_ui_data', lambda: {
+        'hero.png': {'resource_folder': 'hero-assets', 'summary': 'embedded summary'},
+        '_resource_item_categories_v1': {
+            'worldinfo': {
+                str(resource_book).replace('\\', '/').lower(): {'category': 'override-cat', 'updated_at': 1}
+            }
+        },
+    })
+    monkeypatch.setattr(ctx.index_wakeup, 'wait', fake_wait)
+    ctx.index_state.update({'state': 'empty', 'scope': 'cards', 'progress': 0, 'message': '', 'pending_jobs': 0})
+    ctx.index_wakeup.set()
+
+    with pytest.raises(_StopWorkerLoop):
+        index_job_worker.worker_loop()
+
+    with sqlite3.connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT generation, entity_id, entity_type, name, display_category, summary_preview FROM index_entities_v2 WHERE generation = 1 AND entity_type LIKE 'world_%' ORDER BY entity_id"
+        ).fetchall()
+        stats = conn.execute(
+            "SELECT entity_type, category_path, direct_count, subtree_count FROM index_category_stats_v2 WHERE generation = 1 AND scope = 'worldinfo' ORDER BY entity_type, category_path"
+        ).fetchall()
+        job_row = conn.execute(
+            'SELECT status, error_msg FROM index_jobs WHERE job_type = ?',
+            ('upsert_world_owner',),
+        ).fetchone()
+
+    assert rows == [
+        (1, 'world::embedded::hero.png', 'world_embedded', 'New Embedded', 'fantasy', 'embedded summary'),
+        (1, 'world::resource::hero.png::resource-book.json', 'world_resource', 'Resource Book', 'override-cat', ''),
+    ]
+    assert stats == [
+        ('world_all', 'fantasy', 1, 1),
+        ('world_all', 'override-cat', 1, 1),
+        ('world_embedded', 'fantasy', 1, 1),
+        ('world_resource', 'override-cat', 1, 1),
+    ]
+    assert job_row == ('done', '')
+    assert calls == []
 
 
 def test_worker_loop_marks_unknown_job_failed(monkeypatch, tmp_path):

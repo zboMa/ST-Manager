@@ -7,6 +7,11 @@ import uuid
 from core.config import DEFAULT_DB_PATH
 from core.context import ctx
 from core.data.index_runtime_store import ensure_index_runtime_schema
+from core.services.index_build_service import (
+    apply_worldinfo_embedded_increment,
+    apply_worldinfo_owner_increment,
+    apply_worldinfo_path_increment,
+)
 from core.services.index_upgrade_service import rebuild_scope_generation
 
 
@@ -15,21 +20,48 @@ logger = logging.getLogger(__name__)
 _worker_start_lock = threading.Lock()
 
 
-def _connect():
+DEDUPABLE_JOB_TYPES = {'rebuild_scope', 'upsert_card', 'upsert_worldinfo_path', 'upsert_world_embedded', 'upsert_world_owner'}
+WORLDINFO_RECONCILE_JOB_TYPES = {'upsert_worldinfo_path', 'upsert_world_embedded', 'upsert_world_owner'}
+
+
+def _connect(*, ensure_schema: bool = False):
     conn = sqlite3.connect(DEFAULT_DB_PATH, timeout=60)
     conn.row_factory = sqlite3.Row
     conn.execute('PRAGMA journal_mode=WAL;')
     conn.execute('PRAGMA synchronous=NORMAL;')
-    ensure_index_runtime_schema(conn)
+    if ensure_schema:
+        ensure_index_runtime_schema(conn)
     return conn
 
 
 def enqueue_index_job(job_type: str, entity_id: str = '', source_path: str = '', payload: dict | None = None):
+    payload_json = json.dumps(payload or {}, ensure_ascii=False)
     with _connect() as conn:
-        conn.execute(
-            'INSERT INTO index_jobs(job_type, entity_id, source_path, payload_json) VALUES (?, ?, ?, ?)',
-            (job_type, entity_id, source_path, json.dumps(payload or {}, ensure_ascii=False)),
-        )
+        if job_type in DEDUPABLE_JOB_TYPES:
+            existing = conn.execute(
+                '''
+                SELECT id
+                FROM index_jobs
+                WHERE status = 'pending'
+                  AND job_type = ?
+                  AND entity_id = ?
+                  AND source_path = ?
+                  AND payload_json = ?
+                ORDER BY id DESC
+                LIMIT 1
+                ''',
+                (job_type, entity_id, source_path, payload_json),
+            ).fetchone()
+            if not existing:
+                conn.execute(
+                    'INSERT INTO index_jobs(job_type, entity_id, source_path, payload_json) VALUES (?, ?, ?, ?)',
+                    (job_type, entity_id, source_path, payload_json),
+                )
+        else:
+            conn.execute(
+                'INSERT INTO index_jobs(job_type, entity_id, source_path, payload_json) VALUES (?, ?, ?, ?)',
+                (job_type, entity_id, source_path, payload_json),
+            )
         pending = conn.execute(
             "SELECT COUNT(*) FROM index_jobs WHERE status = 'pending'"
         ).fetchone()[0]
@@ -75,6 +107,15 @@ def _claim_pending_jobs(limit: int = 50):
     return claimed_rows, int(pending)
 
 
+def _mark_job_status(job_id: int, status: str, error_msg: str = ''):
+    with _connect() as conn:
+        conn.execute(
+            'UPDATE index_jobs SET status = ?, started_at = COALESCE(NULLIF(started_at, 0), strftime(\'%s\', "now")), finished_at = strftime(\'%s\', "now"), error_msg = ? WHERE id = ?',
+            (status, error_msg, int(job_id)),
+        )
+        conn.commit()
+
+
 def worker_loop():
     while True:
         _set_jobs_state(worker_state='waiting')
@@ -84,31 +125,62 @@ def worker_loop():
         rows, pending = _claim_pending_jobs(50)
         _set_jobs_state(worker_state='processing' if rows else 'idle', pending_jobs=int(pending))
 
+        processed_worldinfo_reconcile = False
+
         for row in rows:
             try:
                 payload = json.loads(row['payload_json'] or '{}')
                 if row['job_type'] == 'rebuild_scope':
                     rebuild_scope_generation(payload.get('scope') or 'cards', reason='manual_rebuild')
-                elif row['job_type'] in ('upsert_card', 'upsert_worldinfo_path', 'upsert_world_embedded', 'upsert_world_owner'):
-                    scope = 'cards' if row['job_type'] == 'upsert_card' else 'worldinfo'
-                    rebuild_scope_generation(scope, reason='incremental_reconcile')
+                elif row['job_type'] == 'upsert_card':
+                    rebuild_scope_generation('cards', reason='incremental_reconcile')
+                elif row['job_type'] == 'upsert_worldinfo_path':
+                    try:
+                        with _connect() as conn:
+                            apply_worldinfo_path_increment(conn, row['source_path'])
+                    except RuntimeError as exc:
+                        if 'active generation missing' not in str(exc):
+                            raise
+                        if not processed_worldinfo_reconcile:
+                            rebuild_scope_generation('worldinfo', reason='incremental_reconcile')
+                            processed_worldinfo_reconcile = True
+                    else:
+                        processed_worldinfo_reconcile = True
+                elif row['job_type'] == 'upsert_world_embedded':
+                    try:
+                        with _connect() as conn:
+                            apply_worldinfo_embedded_increment(conn, row['entity_id'], row['source_path'])
+                    except RuntimeError as exc:
+                        if 'active generation missing' not in str(exc):
+                            raise
+                        if not processed_worldinfo_reconcile:
+                            rebuild_scope_generation('worldinfo', reason='incremental_reconcile')
+                            processed_worldinfo_reconcile = True
+                    else:
+                        processed_worldinfo_reconcile = True
+                elif row['job_type'] == 'upsert_world_owner':
+                    try:
+                        with _connect() as conn:
+                            apply_worldinfo_owner_increment(conn, row['entity_id'], row['source_path'])
+                    except RuntimeError as exc:
+                        if 'active generation missing' not in str(exc):
+                            raise
+                        if not processed_worldinfo_reconcile:
+                            rebuild_scope_generation('worldinfo', reason='incremental_reconcile')
+                            processed_worldinfo_reconcile = True
+                    else:
+                        processed_worldinfo_reconcile = True
+                elif row['job_type'] in WORLDINFO_RECONCILE_JOB_TYPES:
+                    if not processed_worldinfo_reconcile:
+                        rebuild_scope_generation('worldinfo', reason='incremental_reconcile')
+                        processed_worldinfo_reconcile = True
                 else:
                     raise ValueError(f"unsupported index job type: {row['job_type']}")
 
-                with _connect() as conn:
-                    conn.execute(
-                        'UPDATE index_jobs SET status = ?, started_at = COALESCE(NULLIF(started_at, 0), strftime(\'%s\', "now")), finished_at = strftime(\'%s\', "now"), error_msg = ? WHERE id = ?',
-                        ('done', '', row['id']),
-                    )
-                    conn.commit()
+                _mark_job_status(row['id'], 'done', '')
             except Exception as exc:
                 logger.warning('Index job failed %s', row['id'], exc_info=True)
-                with _connect() as conn:
-                    conn.execute(
-                        'UPDATE index_jobs SET status = ?, started_at = COALESCE(NULLIF(started_at, 0), strftime(\'%s\', "now")), finished_at = strftime(\'%s\', "now"), error_msg = ? WHERE id = ?',
-                        ('failed', str(exc), row['id']),
-                    )
-                    conn.commit()
+                _mark_job_status(row['id'], 'failed', str(exc))
 
         if rows:
             with _connect() as conn:
@@ -122,5 +194,7 @@ def start_index_job_worker():
     with _worker_start_lock:
         if ctx.index_worker_started:
             return
+        with _connect(ensure_schema=True):
+            pass
         ctx.index_worker_started = True
         threading.Thread(target=worker_loop, daemon=True).start()

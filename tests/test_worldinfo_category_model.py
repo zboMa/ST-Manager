@@ -1135,6 +1135,24 @@ def test_rename_worldinfo_folder_renames_real_subdirectory(monkeypatch, tmp_path
     assert (lorebooks_dir / '科幻' / '新分类').is_dir()
 
 
+def test_rename_worldinfo_folder_suppresses_fs_events(monkeypatch, tmp_path):
+    lorebooks_dir = tmp_path / 'lorebooks'
+    resources_dir = tmp_path / 'resources'
+    (lorebooks_dir / '科幻' / '旧分类').mkdir(parents=True, exist_ok=True)
+    suppress_calls = []
+
+    monkeypatch.setattr(world_info_api.ctx, 'cache', _FakeCache([]))
+    monkeypatch.setattr(world_info_api, 'BASE_DIR', str(tmp_path))
+    monkeypatch.setattr(world_info_api, 'load_config', lambda: {'world_info_dir': str(lorebooks_dir), 'resources_dir': str(resources_dir)})
+    monkeypatch.setattr(world_info_api, 'suppress_fs_events', lambda seconds=0: suppress_calls.append(seconds))
+
+    client = _make_test_app().test_client()
+    res = client.post('/api/world_info/folders/rename', json={'category': '科幻/旧分类', 'new_name': '新分类'})
+
+    assert res.status_code == 200
+    assert suppress_calls
+
+
 def test_delete_empty_worldinfo_folder_removes_directory(monkeypatch, tmp_path):
     lorebooks_dir = tmp_path / 'lorebooks'
     resources_dir = tmp_path / 'resources'
@@ -1173,6 +1191,25 @@ def test_create_worldinfo_uses_target_category_subfolder(monkeypatch, tmp_path):
     assert payload['path'].endswith('科幻/赛博朋克/New World Info.json')
     assert (lorebooks_dir / '科幻' / '赛博朋克' / 'New World Info.json').exists()
     assert payload['item']['id'] == 'global::科幻/赛博朋克/New World Info.json'
+
+
+def test_create_worldinfo_suppresses_fs_events(monkeypatch, tmp_path):
+    lorebooks_dir = tmp_path / 'lorebooks'
+    resources_dir = tmp_path / 'resources'
+    suppress_calls = []
+    monkeypatch.setattr(world_info_api.ctx, 'cache', _FakeCache([]))
+    monkeypatch.setattr(world_info_api, 'BASE_DIR', str(tmp_path))
+    monkeypatch.setattr(world_info_api, 'load_config', lambda: {'world_info_dir': str(lorebooks_dir), 'resources_dir': str(resources_dir)})
+    monkeypatch.setattr(world_info_api, 'suppress_fs_events', lambda seconds=0: suppress_calls.append(seconds))
+
+    client = _make_test_app().test_client()
+    res = client.post(
+        '/api/world_info/create',
+        json={'name': 'New World Info', 'target_category': '科幻/赛博朋克'},
+    )
+
+    assert res.status_code == 200
+    assert suppress_calls
 
 
 def test_move_worldinfo_category_reset_rejects_non_resource_item(monkeypatch, tmp_path):
@@ -1237,6 +1274,29 @@ def test_upload_worldinfo_uses_target_category_subfolder(monkeypatch, tmp_path):
     payload = res.get_json()
     assert payload['success'] is True
     assert (lorebooks_dir / '科幻' / '赛博朋克' / 'dragon.json').exists()
+
+
+def test_upload_worldinfo_suppresses_fs_events(monkeypatch, tmp_path):
+    lorebooks_dir = tmp_path / 'lorebooks'
+    resources_dir = tmp_path / 'resources'
+    suppress_calls = []
+    monkeypatch.setattr(world_info_api.ctx, 'cache', _FakeCache([]))
+    monkeypatch.setattr(world_info_api, 'BASE_DIR', str(tmp_path))
+    monkeypatch.setattr(world_info_api, 'load_config', lambda: {'world_info_dir': str(lorebooks_dir), 'resources_dir': str(resources_dir)})
+    monkeypatch.setattr(world_info_api, 'suppress_fs_events', lambda seconds=0: suppress_calls.append(seconds))
+
+    client = _make_test_app().test_client()
+    res = client.post(
+        '/api/upload_world_info',
+        data={
+            'target_category': '科幻/赛博朋克',
+            'files': (BytesIO(json.dumps({'name': 'Dragon Lore', 'entries': {}}).encode('utf-8')), 'dragon.json'),
+        },
+        content_type='multipart/form-data',
+    )
+
+    assert res.status_code == 200
+    assert suppress_calls
 
 
 def test_upload_worldinfo_from_non_global_context_requires_explicit_fallback_confirmation_contract(monkeypatch, tmp_path):
