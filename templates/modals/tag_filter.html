@@ -1322,7 +1322,7 @@
                           class="text-accent font-bold"
                           x-text="selectedBlacklistTags.length"
                         ></span>
-                        个标签；可点击标签增减选择，也可用下方分隔符输入批量加入。</span
+                        个标签；可点击标签增减选择，也可用下方分隔符输入批量加入，下方会显示待加入黑名单的具体标签。</span
                       >
                       <button
                         type="button"
@@ -1362,6 +1362,47 @@
                     </div>
                     <div class="text-xs" style="color: var(--text-dim)">
                       开启治理开关后，自动流程和批量流程会跳过这些黑名单标签。
+                    </div>
+                    <div
+                      class="text-xs"
+                      style="color: var(--text-dim); margin-top: 0.6rem"
+                    >
+                      待加入黑名单
+                    </div>
+                    <div
+                      class="tag-filter-delete-pending-list custom-scrollbar"
+                      style="max-height: 7rem; margin-top: 0.35rem"
+                    >
+                      <template x-if="selectedBlacklistTags.length === 0">
+                        <div
+                          class="text-xs"
+                          style="color: var(--text-dim); padding: 0.5rem 0"
+                        >
+                          当前没有待加入黑名单的标签。
+                        </div>
+                      </template>
+                      <template
+                        x-for="tag in selectedBlacklistTags"
+                        :key="'blacklist-selected-' + tag"
+                      >
+                        <button
+                          type="button"
+                          class="tag-filter-selected-basket-chip tag-filter-selected-basket-chip--excluded"
+                          @click="toggleTagSelectionForBlacklist(tag)"
+                        >
+                          <span
+                            class="tag-filter-selected-basket-chip-label"
+                            x-text="tag"
+                          ></span>
+                          <span aria-hidden="true">移除</span>
+                        </button>
+                      </template>
+                    </div>
+                    <div
+                      class="text-xs"
+                      style="color: var(--text-dim); margin-top: 0.6rem"
+                    >
+                      当前黑名单标签
                     </div>
                     <div
                       class="tag-filter-delete-pending-list custom-scrollbar"

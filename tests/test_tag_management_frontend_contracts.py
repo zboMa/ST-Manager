@@ -193,6 +193,7 @@ def test_tag_filter_modal_blacklist_mode_supports_click_and_splitter_selection_c
     assert 'x-model="blacklistSelectionInput"' in template
     assert '@click="applyBlacklistSelectionInput()"' in template
     assert '@click="saveBlacklistSelection()"' in template
+    assert '待加入黑名单' in template
 
 
 def test_governance_drawer_js_defines_desktop_state_and_toggle_hooks():

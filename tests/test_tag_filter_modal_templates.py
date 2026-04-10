@@ -862,7 +862,21 @@ def test_blacklist_and_delete_mode_copy_reflects_blacklist_governance_flow():
 
     assert '可直接将选中标签加入黑名单，避免误删。' in template_source
     assert '输入任意标签名，使用 |、逗号或换行批量加入黑名单选择' in template_source
+    assert '下方会显示待加入黑名单的具体标签。' in template_source
     assert '加入黑名单' in template_source
+
+
+def test_blacklist_mode_template_exposes_pending_selection_preview_list():
+    template_source = read_project_file('templates/modals/tag_filter.html')
+    blacklist_index = find_contract_index(
+        template_source,
+        'desktopWorkspaceMode === \'blacklist\'',
+    )
+
+    assert find_contract_index(template_source, '待加入黑名单', blacklist_index) > blacklist_index
+    assert find_contract_index(template_source, '当前没有待加入黑名单的标签。', blacklist_index) > blacklist_index
+    assert find_contract_index(template_source, 'x-for="tag in selectedBlacklistTags"', blacklist_index) > blacklist_index
+    assert find_contract_index(template_source, '@click="toggleTagSelectionForBlacklist(tag)"', blacklist_index) > blacklist_index
 
 
 def test_integrates_tag_pool_and_footer():
